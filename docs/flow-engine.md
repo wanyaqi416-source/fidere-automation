@@ -19,6 +19,16 @@ Flow Engine不导入Playwright Page或具体Page Object。领域代码通过回�
 
 ## 生命周期
 
+### Admin认证恢复
+
+本地独立Admin Flow在Playwright `global-setup.ts`阶段自动检查现有`auth/admin.json`。
+共用`AdminShellPage`访问真实受保护业务页面并观察列表响应，不以旧菜单或离开登录页单独判定有效。
+会话缺失/过期时自动调用与`npm run auth:admin`相同的headed登录实现，填写配置中的账号密码；人工完成图形验证码和页面需要的邮箱验证。
+重新核验业务页面并保存认证后，原测试才开始。恢复只尝试一次，不重跑用例、不重置Run/Resume/单次Mutation标记。
+
+CI、`regression`及安全批量回归不自动弹窗；`ADMIN_AUTH_AUTO_RENEW=false`可关闭本地自动恢复。
+网络故障、无权限或业务页面异常直接报告预检不可用，不重复登录。测试运行期间发现认证失效仍保留原业务状态，不自动回放已提交操作。
+
 ```text
 preflight
 -> captureBeforeState

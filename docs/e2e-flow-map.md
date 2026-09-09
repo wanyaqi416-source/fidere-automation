@@ -509,6 +509,18 @@ Client前置状态
 
 `WR-001`与`WR-DRY`只读识别当前持仓条件。现账号没有页面可见且可赎回的持仓，因此Mutation状态为`BLOCKED_TEST_DATA`，测试不会伪造仓位或打开最终赎回链路。
 
+## 微牛双文档开户 OPEN-WEBULL
+
+原Journey用户 -> 券商/Webull -> 读取真实开户费及付款账户余额
+-> 余额不足时独立授权入金并确认到账 -> W-8BEN签署及回写
+-> CRS控制人表格签署及回写 -> 双文档均完成 -> 开户确认/共享SecurityKeyDialog一次
+-> 原开户申请真实创建 -> Admin原微牛候选唯一/详情核对 -> 审核通过一次 -> Client原微牛账户已开通。
+
+OPEN-WEBULL-001预检通过；OPEN-WEBULL-003现已真实PASS并Ready。原AH两份签署通过原生init-sign恢复signed=true，未重签；申请30，费用确认/安全验证/最终审批各1次，候选1条，Admin已开户、Client已开通，香港USD894.62 -> 794.62。
+原Run阶段：DOCUMENT_SIGNED -> FEE_CONFIRMATION_ATTEMPTED -> SECURITY_KEY_VERIFICATION_ATTEMPTED -> CLIENT_CREATED -> ADMIN_LOCATED -> ADMIN_APPROVAL_CONFIRMATION_REQUIRED -> ADMIN_APPROVAL_SUBMISSION_ATTEMPTED -> ADMIN_ACTION_DONE -> CLIENT_FINALIZED -> COMPLETED。原Run禁止重跑。
+文档独立引用、字段和回写证据不得混用；总进度0/0只统计上传文件，不统计电子签署，不能代表两份完成。余额不足分支不自动调用未授权入金。
+详见[微牛证券开户流程](./webull-broker-opening.md)。
+
 ## 数字资产地址审核 DA-002
 
 原Journey用户 -> Client头像/设置/地址管理 -> 填写地址名称、币种网络、钱包地址
@@ -518,5 +530,5 @@ Client前置状态
 -> Admin原记录已通过 -> Client同一地址可见且启用。
 
 列表“启用”与“审核通过”分离；原白名单ID用于Resume及二次匹配，不替代钱包地址搜索。
-本流程不执行数字资产出金或任何余额操作。DA-001和DA-DRY已通过安全验证；DA-002代码已接入，真实新增审批尚未执行，保持In Progress。
+本流程不执行数字资产出金或任何余额操作。DA-001和DA-DRY已通过安全验证；DA002-AH-20260909真实新增审核闭环PASS，DA-002已Ready。Client提交、安全验证和Admin最终确认各1次，候选1条，Client地址可见且启用；原Run已COMPLETED，禁止重跑。
 详见[数字资产地址流程](./digital-address-flow.md)。

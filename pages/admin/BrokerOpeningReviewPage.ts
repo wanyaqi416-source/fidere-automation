@@ -76,12 +76,12 @@ export class BrokerOpeningReviewPage {
     return { controls, options, finalButtonEnabled: await this.page.getByRole('button', { name: '保存处理结果', exact: true }).isEnabled() };
   }
 
-  async verifyDetail(row: BrokerOpeningRow, identity: { email: string; displayName: string }): Promise<void> {
+  async verifyDetail(row: BrokerOpeningRow, identity: { email: string; displayName: string }, broker: 'TIGER' | 'WEBULL' = 'TIGER'): Promise<void> {
     await this.openDetail(row);
     const main = this.page.getByRole('main');
     await expect(main).toContainText(identity.email);
     await expect(main).toContainText(identity.displayName);
-    await expect(main).toContainText(/TIGER|老虎证券/i);
+    await expect(main).toContainText(broker === 'WEBULL' ? /WEBULL|微牛证券/i : /TIGER|老虎证券/i);
     await expect(main).toContainText(row.status);
     await expect(main).toContainText(row.submittedAt);
     const reference = new URL(this.page.url()).pathname.match(/\/brokerAccountManagement\/([^/]+)$/)?.[1];

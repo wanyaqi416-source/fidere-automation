@@ -1463,15 +1463,15 @@ export const FLOW_REGISTRY: readonly FlowDefinition[] = [
   }),
   defineFlow({
     id: 'digital-address-approval', caseId: 'DA-002', name: '数字资产地址新增与审核闭环', module: '数字资产地址', priority: 'P0',
-    scope: 'Client+Admin', type: 'E2E / Mutation', status: 'In Progress', implemented: true,
+    scope: 'Client+Admin', type: 'E2E / Mutation', status: 'Ready', implemented: true,
     changesData: true, affectsMoney: false, requiresClient: true, requiresAdmin: true, requiresThirdParty: false,
     supportsResume: true, adminAction: 'Approve', clientAction: '新增指定Sandbox钱包地址并完成安全密钥验证一次',
     npmScript: 'test:digital-address', safetySwitch: 'ALLOW_CLIENT_MUTATION_TESTS',
     safetySwitches: ['ALLOW_CLIENT_MUTATION_TESTS', 'ALLOW_ADMIN_MUTATION_TESTS'], defaultRegression: false, moneyRegression: false,
-    realE2EVerified: false,
+    realE2EVerified: true, businessResult: 'Passed', automationResult: 'Passed',
     primaryOracles: ['原用户单次新增地址，非资金转出', '用户、地址、币种、网络、标签及原白名单ID唯一匹配',
       'Admin详情复核与单次确认通过', 'Admin原记录已通过且Client同一地址可见并启用'], secondaryOracles: [],
-    menuSection: '出金', menuOrder: 101, description: '新增地址 -> 共用SecurityKeyDialog -> Admin数字资产地址审核 -> Client启用；仅显式授权的Run可执行。'
+    menuSection: '出金', menuOrder: 101, description: 'DA002-AH-20260909真实闭环通过：AH原用户单次新增、安全验证、Admin唯一审批，Client同一地址可见且启用；不进行资金或链上操作，完成Run禁止重跑。'
   }),
   defineFlow({
     id: 'admin-manual-fiat-withdrawal', caseId: 'ADMIN-MW-001', name: 'Admin普通手动出金', module: '管理端手动出金', priority: 'P0',
@@ -1485,6 +1485,43 @@ export const FLOW_REGISTRY: readonly FlowDefinition[] = [
     primaryOracles: ['原用户、香港USD账户和银行唯一且确认摘要匹配', '最终确认手动出金仅一次', '服务端业务响应成功且Admin显示手动出金成功'],
     secondaryOracles: [], menuSection: '出金', menuOrder: 99,
     description: 'MW001-AH-20260908真实通过：原AH香港USD普通手动出金11.03、手续费2.00，最终确认1次；Admin业务提交成功，余额907.65降至894.62。独立于Client出金审批；不执行费用扣除/调账，原Run禁止重跑。'
+  }),
+  defineFlow({
+    id: 'webull-broker-opening-dry-run', caseId: 'OPEN-WEBULL-001', name: '微牛证券双文档开户预检', module: '券商开户', priority: 'P0',
+    scope: 'Client', type: 'Dry Run / Read-only', status: 'Ready', implemented: true,
+    changesData: false, affectsMoney: false, requiresAdmin: false, requiresThirdParty: false,
+    supportsResume: false, adminAction: 'None', clientAction: '读取微牛开户费用及W-8BEN、CRS两个签署入口，最终操作前停止',
+    npmScript: 'test:broker-opening:webull:dry-run', safetySwitch: null,
+    defaultRegression: false, moneyRegression: false, realE2EVerified: null,
+    primaryOracles: ['复用已有用户', '实际费用可读', 'W-8BEN和CRS分别定位', '未完成双文档不得提交', '无签署、扣费或开户提交'],
+    secondaryOracles: [], menuSection: '未实现流程', menuOrder: 26,
+    description: '2026-09-09原AH真实页面预检通过：香港USD894.62，实际费用100USD，W-8BEN及CRS入口分别唯一，未签署时下一步禁用。不创建文档，不进行最终签署或扣费。'
+  }),
+  defineFlow({
+    id: 'webull-broker-opening-reconciliation', caseId: 'OPEN-WEBULL-RO', name: '微牛原文档签署只读复核', module: '券商开户', priority: 'P0',
+    scope: 'Client', type: 'Read-only', status: 'Ready', implemented: true,
+    changesData: false, affectsMoney: false, requiresAdmin: false, requiresThirdParty: false,
+    supportsResume: true, adminAction: 'None', clientAction: '读取原微牛文档回写与余额，不打开第三方签署或确认费用',
+    npmScript: 'test:broker-opening:webull:reconciliation', safetySwitch: null,
+    defaultRegression: false, moneyRegression: false, realE2EVerified: null,
+    primaryOracles: ['原用户与原Run', '逐文档读取Fidere状态', '只读余额且所有Mutation开关关闭'],
+    secondaryOracles: [], menuSection: '未实现流程', menuOrder: 28,
+    description: '需BROKER_SOURCE_RUN_ID和BROKER_OPENING_RUN_ID；仅复核原Run。已开户时读取原微牛状态及余额，不再打开申请或签署。'
+  }),
+  defineFlow({
+    id: 'webull-broker-opening', caseId: 'OPEN-WEBULL-003', name: '微牛证券双文档开户与Admin审核', module: '券商开户', priority: 'P0',
+    scope: 'Client+Admin+Third Party', type: 'Money / Mutation', status: 'Ready', implemented: true,
+    changesData: true, affectsMoney: true, requiresAdmin: true, requiresThirdParty: true,
+    requiresSecurityKey: true, supportsResume: true, adminAction: 'Approve',
+    clientAction: '恢复原W-8BEN及CRS签署结果，再确认费用和安全验证；不重复签署', npmScript: 'test:broker-opening:webull:resume',
+    safetySwitch: 'ALLOW_MONEY_TESTS', safetySwitches: ['ALLOW_CLIENT_MUTATION_TESTS', 'ALLOW_MONEY_TESTS', 'ALLOW_ADMIN_MUTATION_TESTS'],
+    defaultRegression: false, moneyRegression: true, realE2EVerified: true,
+    businessResult: 'Passed', automationResult: 'Passed',
+    primaryOracles: ['原用户与独立微牛申请', '实际开户费及付款账户余额足够；不足先完成授权入金',
+      'W-8BEN和CRS各自签署完成，剩余字段0，Fidere逐份确认', 'SecurityKey验证一次且真实创建申请',
+      'Admin原微牛申请唯一且详情匹配', 'Admin最终通过一次', 'Client原微牛账户已开通'],
+    secondaryOracles: ['开户费流水展示'], menuSection: '未实现流程', menuOrder: 27,
+    description: 'OPEN-WEBULL-AH-20260909真实PASS：原AH两份文档通过init-sign返回signed=true恢复，无重签；微牛申请30，Client确认/安全验证/Admin确认通过各1次，候选唯一，Admin已开户、Client已开通。香港USD894.62降至794.62，费用100USD。原Run已COMPLETED，禁止重跑。'
   }),
   defineFlow({
     id: 'tiger-broker-opening', caseId: 'OPEN-TIGER-003', name: '老虎证券开户与Admin审核', module: '券商开户', priority: 'P0',

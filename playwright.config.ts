@@ -1,8 +1,9 @@
 import { defineConfig, devices } from '@playwright/test';
-import { authStatePaths, existingAuthState } from './src/config/auth';
+import { authStatePaths } from './src/config/auth';
 import { env } from './src/config/env';
 
 export default defineConfig({
+  globalSetup: './global-setup.ts',
   testDir: './tests',
   timeout: env.testTimeoutMs,
   expect: {
@@ -96,7 +97,7 @@ export default defineConfig({
       use: {
         ...devices['Desktop Chrome'],
         baseURL: env.admin.baseUrl,
-        storageState: existingAuthState(authStatePaths.admin)
+        storageState: authStatePaths.admin
       }
     },
     {

@@ -16,7 +16,7 @@
 | Client Read-only Regression | P0/P1 | Client | Ready | Yes | Passed | Passed | Default |
 | DA-001 Digital Address Validation | P0 | Client | Ready | N/A | N/A | Passed | On demand / Read-only |
 | DA-DRY Digital Address Review | P0 | Client+Admin | Ready | N/A | N/A | Passed | On demand / Read-only |
-| DA-002 Digital Address Approval | P0 | Client+Admin | In Progress | No | Not Run | Code implemented | Mutation / On demand |
+| DA-002 Digital Address Approval | P0 | Client+Admin | Ready | Yes | Passed | Passed | Mutation / On demand |
 | TRUST-BEN-003 Beneficiary Resume Reconciliation | P0 | Client+Admin | Ready | N/A | Blocked | Passed | On demand / Read-only |
 | TRUST-BEN-002 Trust Beneficiary Golden Journey | P0 | Client+Admin | Ready | Yes | Passed | Passed | Mutation / Resume only |
 | Exchange Validation | P0 | Client | Ready | N/A | N/A | Passed | Default |
@@ -116,6 +116,13 @@ DP-002真实拒绝闭环已完成：Client只创建一笔`11.18 HKD`申请，Adm
 DP-003单次提交的`香港账户 / USD / 11.97`申请先经只读Reconciliation取得唯一Client TXN与唯一Admin候选，再以Resume方式完成Admin认领。原Client TXN终态、Admin状态和USD余额增加均通过Primary Oracle；没有创建第二笔申请。原失败Run永久保留，DP-003及Deposit整体现为Ready。
 
 ## Platform Model
+
+### Webull Opening 2026-09-09
+
+`OPEN-WEBULL-001`预检Ready；`OPEN-WEBULL-003`完整开户Ready、Real E2E Verified=Yes。
+原AH的`OPEN-WEBULL-AH-20260909`已恢复两份原签署结果，未重签；Client微牛申请30、安全验证1次、Admin候选1条、最终通过1次。Admin已开户，Client已开通，原Run为COMPLETED。
+香港USD从894.62降至794.62，实际费用100.00 USD。三个Mutation开关均恢复false，没有额外入金或第二条申请。
+原始签署及只读失败报告保留；新报告明确记录原生init-sign对两份文档均返回signed=true。微牛独立Signer不修改个人、企业或US签署组件。详见[微牛开户](./webull-broker-opening.md)。冻结Baseline不变，完整Mutation不进入默认回归。
 
 - L0 Smoke、L1 Validation、L2 Readonly Reconciliation、L3 Dry Run可进入安全回归。
 - L4 Mutation E2E必须显式选择单条Flow并开启对应安全开关；不进入`npm run regression`。

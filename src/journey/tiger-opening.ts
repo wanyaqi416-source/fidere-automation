@@ -4,13 +4,27 @@ import type { BrokerOpeningRow } from '../../pages/admin/BrokerOpeningReviewPage
 export function matchTigerOpening(rows: BrokerOpeningRow[], input: {
   email: string; displayName: string; submittedFrom?: string; submittedTo?: string; reference?: string;
 }) {
+  return matchBrokerOpening(rows, { ...input, broker: 'TIGER' });
+}
+
+export function matchWebullOpening(rows: BrokerOpeningRow[], input: {
+  email: string; displayName: string; submittedFrom?: string; submittedTo?: string; reference?: string;
+}) {
+  return matchBrokerOpening(rows, { ...input, broker: 'WEBULL' });
+}
+
+function matchBrokerOpening(rows: BrokerOpeningRow[], input: {
+  email: string; displayName: string; submittedFrom?: string; submittedTo?: string; reference?: string; broker: 'TIGER' | 'WEBULL';
+}) {
   return matchCandidatesByStages(rows, [
     { id: 'email', label: '原Journey邮箱', matches: row => {
       const emails = row.customerText.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) ?? [];
       return emails.some(email => email.toLowerCase() === input.email.toLowerCase());
     } },
     { id: 'name', label: '原用户名称', matches: row => row.customerText.includes(input.displayName) },
-    { id: 'broker', label: '老虎证券', matches: row => /^(Tiger|老虎证券|TIGER（老虎证券）)$/i.test(row.broker) },
+    { id: 'broker', label: input.broker === 'TIGER' ? '老虎证券' : 'Webull微牛证券', matches: row => input.broker === 'TIGER'
+      ? /^(Tiger|老虎证券|TIGER（老虎证券）)$/i.test(row.broker)
+      : /^(Webull|Webull 微牛证券|webull（Webull 微牛证券）)$/i.test(row.broker) },
     { id: 'type', label: '个人账户', matches: row => /^(个人|个人用户|Personal)$/i.test(row.accountType) },
     { id: 'reference', label: '原申请引用（如已取得）', matches: row => !input.reference || row.reference === input.reference },
     { id: 'time', label: '本次Client提交时间', matches: row => {

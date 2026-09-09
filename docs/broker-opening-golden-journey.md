@@ -65,7 +65,7 @@ The preflight requires `BROKER_SOURCE_RUN_ID`. Real manual deposit additionally 
 - Admin Run-note ledger query still returned 0. This is a non-scoring Diagnostic, not evidence against the confirmed balance increase and not a manual-review condition.
 - Historical failing executions remain preserved. Final read-only reconciliation PASS: [report](../reports/business/history/2026-09-08_16-02-39-92725f7c/report.html).
 
-Tiger opening completed in `OPEN-TIGER-AH-20260908`, as recorded below. Webull has not executed and remains unverified; its two signing documents must not inherit Tiger readiness.
+Tiger opening completed in `OPEN-TIGER-AH-20260908`, as recorded below. Webull independently completed in `OPEN-WEBULL-AH-20260909`; its readiness is based on its own two-document and application evidence, not Tiger's result.
 
 Verification: `typecheck` passed; existing Journey/Bootstrap plus new two-stage/no-double-credit tests 6/6 passed; final read-only reconciliation 1/1 passed. Process permissions were restored and all `.env` mutation switches remain false.
 
@@ -74,6 +74,10 @@ Next intended progression after authorized bootstrap:
 `BALANCE_READY -> BROKER_DOCUMENTS_READY (Webull only) -> FEE_CONFIRMATION -> SECURITY_VERIFIED -> CLIENT_APPLICATION_CREATED -> ADMIN_CANDIDATE_UNIQUE -> ADMIN_APPROVED -> CLIENT_BROKER_OPENED`
 
 Each broker keeps its own original application and single-click counters. Webull's two documents have separate lifecycle evidence. Do not assume Personal, Corporate, or US document locators are compatible until the actual embedded broker document DOM is verified.
+
+## Webull Preflight
+
+Webull独立用例与双文档预检已建立，详见[微牛开户Flow](./webull-broker-opening.md)。OPEN-WEBULL-001已通过；原AH的OPEN-WEBULL-003恢复原W-8BEN与CRS结果后完整PASS，申请30，Admin已开户、Client已开通。未重签，费用确认/安全验证/审批各1次；香港USD894.62降至794.62，费用100USD，无额外入金。微牛使用独立WebullDocumentSigner；个人、企业和US具体签署组件不变。原Run已COMPLETED，禁止重复申请。
 
 ## Tiger Execution Completed
 

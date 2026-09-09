@@ -11,7 +11,7 @@ Read this file before changing or adding a Flow.
 - Client submission, Security Key verification, and Admin final action are each limited to one click per Run.
 - Any Client Money Mutation that causes a real fee or debit must use the shared `SecurityKeyDialog`: business confirmation -> read `CLIENT_SECURITY_KEY` -> one verification click -> business creation evidence. Clicking the business or fee confirmation alone is not a completed money submission. Never hardcode or report the Security Key.
 - Once Client business data exists, persist the allowed Resume state and continue that business. Do not create a replacement order after a downstream failure.
-- A stale Admin session must fail during preflight, before any Client mutation. Never invoke interactive Admin authentication from a test.
+- Local standalone Admin flows check a protected business page in Playwright global setup before any test/Client mutation. A missing or expired session automatically opens the shared headed Admin authentication once; the user completes captcha/OTP, and business-page verification must pass before tests start. Never invoke interactive authentication from a test body, replay a test, reset Resume/attempt markers, or repeat a mutation to recover auth. CI, safe regression suites, and `ADMIN_AUTH_AUTO_RENEW=false` never open interactive authentication; unavailable networks/permissions do not trigger login loops.
 - Fresh Personal Registration must read its password only from `CLIENT_PASSWORD`; the user factory creates or reserves only unique Sandbox email and phone identities, and no password may be persisted in Journey or pool data.
 - A Fresh Run is the active test journey, not a requirement to create a new account on every invocation. If that journey already has an account without a final profile submission, resume it by default; create another account only when no recoverable account exists. An existing sequence blocks allocation of the next sequence.
 - Personal Registration must complete Documenso and observe Fidere signing recognition before final profile submission. An enabled submit button before signing is a Secondary product warning, but automation must continue signing and must never click that button early.
@@ -31,6 +31,7 @@ Read this file before changing or adding a Flow.
 - Domain-specific forms, mappings, statuses, and identifiers stay in their domain modules.
 - Different third-party or embedded signing pages may share only a signing lifecycle abstraction. Do not share concrete DOM locators across business flows unless that exact page DOM has been verified.
 - Personal Registration uses `RegistrationAgreementSigner`; US Account Opening uses `DocumentSigningPage`. Neither flow may call the other's concrete locator contract.
+- Webull W-8BEN and CRS signing uses its independent `WebullDocumentSigner`. It must not import or overwrite Personal, Corporate, or US Opening concrete signing locators. Each Webull document keeps separate signature, final-action, and callback evidence.
 - Registration and KYC flows must never perform the final Client submission while any signing field remains or the domain signing-completion gate is false.
 
 ## Candidate Safety

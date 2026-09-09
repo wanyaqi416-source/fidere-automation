@@ -5,6 +5,8 @@ import { chromium, devices, type Locator, type Page } from 'playwright';
 
 import { authStatePaths } from '../src/config/auth';
 import { env } from '../src/config/env';
+import { AdminShellPage } from '../pages/admin/AdminShellPage';
+import { assertSandboxEnvironment } from '../src/flow-engine/mutation-guard';
 
 const DEFAULT_AUTH_TIMEOUT_MS = 10 * 60 * 1000;
 
@@ -260,8 +262,9 @@ async function fillAndSubmitEmailOtp(page: Page, otp: string): Promise<void> {
   );
 }
 
-async function main(): Promise<void> {
+export async function captureAdminAuthentication(): Promise<void> {
   const adminBaseUrl = requireEnvValue('ADMIN_BASE_URL', env.admin.baseUrl);
+  assertSandboxEnvironment(adminBaseUrl);
   const adminUsername = requireEnvValue('ADMIN_USERNAME', env.admin.username);
   const adminPassword = requireEnvValue('ADMIN_PASSWORD', env.admin.password);
   const adminEmailOtp = requireEnvValue('ADMIN_OTP', env.admin.otp);
@@ -319,6 +322,10 @@ async function main(): Promise<void> {
 
     const signals = await waitForAdminLoginSuccess(page, authTimeoutMs);
 
+    if (await new AdminShellPage(page).inspectAuthentication(adminBaseUrl) !== 'valid') {
+      throw new Error('Admin login did not verify access to the protected business page. Previous storageState was preserved.');
+    }
+
     await mkdir(dirname(authStatePaths.admin), { recursive: true });
     const storageState = await context.storageState({
       path: authStatePaths.admin
@@ -330,12 +337,15 @@ async function main(): Promise<void> {
 
     console.log(`Admin login detected by: ${signals.join(', ') || 'authenticated page state'}.`);
     console.log(`Admin storageState saved to ${relativePath(authStatePaths.admin)}.`);
+    console.log('Admin protected business page verified. No business mutation performed.');
   } finally {
     await browser.close();
   }
 }
 
-main().catch(error => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exit(1);
-});
+if (require.main === module) {
+  void captureAdminAuthentication().catch(error => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  });
+}
