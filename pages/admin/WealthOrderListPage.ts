@@ -24,6 +24,8 @@ export type WealthAdminDetail = {
 
 export class WealthOrderListPage {
   private mutationClicks = 0;
+  private rejectionFormOpenCount = 0;
+  private filledRejection?: { orderId: string; reason: string };
   private kind: WealthAdminOrderKind = 'subscription';
 
   constructor(readonly page: Page) {}
@@ -140,6 +142,73 @@ export class WealthOrderListPage {
     await expect(button).toBeEnabled();
     this.mutationClicks += 1;
     await button.click();
+  }
+
+  async pendingOrderIdsForInspection(): Promise<string[]> {
+    const tab = this.page.getByRole('tab', { name: '待审核', exact: true });
+    if (await tab.getAttribute('aria-selected') !== 'true') {
+      const loaded = this.waitForListResponse();
+      await tab.click();
+      await loaded;
+    }
+    if (await this.searchInput.inputValue()) {
+      const loaded = this.waitForListResponse();
+      await this.searchInput.fill('');
+      await this.searchInput.press('Enter');
+      await loaded;
+    }
+    await this.waitForLoadingToFinish();
+    const ids = new Set<string>();
+    for (const row of await this.rows.all()) {
+      for (const id of (await row.innerText()).match(/INV-[A-Z0-9-]+/gi) ?? []) ids.add(id);
+    }
+    return [...ids].sort();
+  }
+
+  async rejectionFormState(orderId: string) {
+    const root = await this.resolveDetailRoot(orderId);
+    const fields = [];
+    for (const input of await root.getByRole('textbox').all()) {
+      fields.push({ label: await input.getAttribute('aria-label'), placeholder: await input.getAttribute('placeholder'),
+        required: await input.getAttribute('required') !== null || await input.getAttribute('aria-required') === 'true',
+        maxLength: await input.getAttribute('maxlength') });
+    }
+    return { fields, buttons: (await root.getByRole('button').allTextContents()).map(text => text.trim()) };
+  }
+
+  async fillRejectionForm(orderId: string, reason: string): Promise<void> {
+    if (this.kind !== 'subscription' || this.mutationClicks || this.rejectionFormOpenCount) {
+      throw new Error('Subscription rejection form may only be prepared once, before the final action.');
+    }
+    if (!reason.trim()) throw new Error('Subscription rejection requires a nonempty reason.');
+    const root = await this.resolveDetailRoot(orderId);
+    const open = root.getByRole('button', { name: '拒绝', exact: true });
+    await expect(open).toHaveCount(1); await expect(open).toBeEnabled();
+    // Verified UI handler only opens the local reason form; Confirm Reject is the final mutation.
+    this.rejectionFormOpenCount += 1;
+    await open.click();
+    const input = root.getByPlaceholder(/^请说明拒绝该认购/);
+    await expect(input).toHaveCount(1); await expect(input).toBeVisible();
+    const maxLength = await input.getAttribute('maxlength');
+    if (maxLength !== null && Number(maxLength) >= 0 && reason.length > Number(maxLength)) {
+      throw new Error('The explicit rejection reason exceeds the actual form length limit.');
+    }
+    await input.fill(reason); await expect(input).toHaveValue(reason);
+    await expect(root.getByRole('button', { name: '确认拒绝', exact: true })).toBeEnabled();
+    this.filledRejection = { orderId, reason };
+  }
+
+  async rejectOnce(orderId: string, beforeFinalClick: () => void): Promise<void> {
+    if (this.mutationClicks || this.kind !== 'subscription' || this.filledRejection?.orderId !== orderId) {
+      throw new Error('Refusing repeated rejection or an unprepared/wrong subscription.');
+    }
+    const root = await this.resolveDetailRoot(orderId);
+    await expect(root.getByPlaceholder(/^请说明拒绝该认购/)).toHaveValue(this.filledRejection.reason);
+    const confirm = root.getByRole('button', { name: '确认拒绝', exact: true });
+    await expect(confirm).toHaveCount(1); await expect(confirm).toBeEnabled();
+    beforeFinalClick();
+    this.mutationClicks += 1;
+    await confirm.click();
   }
 
   private async searchExact(orderId: string): Promise<void> {

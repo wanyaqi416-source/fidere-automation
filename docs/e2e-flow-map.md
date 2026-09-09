@@ -225,6 +225,8 @@ Client 前置状态
 
 ## F. 理财认购
 
+2026-09-09更新：独立认购拒绝Negative Journey WS-002已真实PASS并Ready。明确授权Run `WS002-20260909-173401`：香港账户认购Galaxy Digital Lending 1.60 USD，原INV唯一、Admin确认拒绝1次、双方已拒绝，可用/冻结/总资金恢复且无新增有效持仓。Client确认、安全验证各1次，未重跑、未注册或入金，Mutation开关恢复false。WS-003审核通过用例、历史真实成功与命令保持不变。详细证据见[Wealth Golden Journeys](wealth-golden-journeys.md#ws-002-subscription-rejection-2026-09-09)。
+
 ```text
 Client 前置状态
   产品上架；付款账户余额充足；用户满足风险等级；记录余额与持仓

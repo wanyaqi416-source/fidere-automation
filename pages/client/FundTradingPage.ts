@@ -21,6 +21,7 @@ export type WealthHistoryRecord = {
   status: string;
   createdAt: string;
   purchaseAccount: string;
+  rejectionReason?: string;
 };
 
 export type WealthPosition = { productId: string; productName: string; principal: string; currency: string; status: string };
@@ -32,6 +33,7 @@ export type WealthPositionState = {
 };
 
 export class FundTradingPage {
+  private positionTotal?: number;
   constructor(readonly page: Page) {}
 
   async readSafeVisibleState(): Promise<string> {
@@ -107,7 +109,10 @@ export class FundTradingPage {
     const tab = this.page.getByRole('tab', { name: '我的投资', exact: true });
     const loaded = this.page.waitForResponse(response => new URL(response.url()).pathname === '/api/invest/positions-list');
     await tab.click();
-    await (await loaded).finished();
+    const response = await loaded;
+    await response.finished();
+    const payload = await response.json();
+    this.positionTotal = response.ok() && payload.code === 0 && Number.isInteger(payload.data?.total) ? payload.data.total : undefined;
     await expect(tab).toHaveAttribute('aria-selected', 'true');
     await this.waitForRenderedData();
 
@@ -153,6 +158,14 @@ export class FundTradingPage {
         status: text.match(/持有中|已赎回|已到期/)?.[0] ?? '' });
     }
     return result;
+  }
+
+  async readCompletePositions(): Promise<WealthPosition[]> {
+    const rows = await this.readPositions();
+    if (this.positionTotal === undefined || rows.length !== this.positionTotal) {
+      throw new Error('Position coverage incomplete: rendered positions must equal the read-only response total before asserting no new holding.');
+    }
+    return rows;
   }
 
   async openPositionDetails(productId: string): Promise<void> {
@@ -250,7 +263,8 @@ export class FundTradingPage {
         currency: amount.currency,
         status: (cells[5] ?? text.match(/待审核|处理中|已通过|已拒绝|已完成|已赎回|已到期|持有中|成功|失败/)?.[0] ?? '').trim(),
         createdAt: text.match(/20\d{2}[-/]\d{2}[-/]\d{2}(?:\s+\d{2}:\d{2}(?::\d{2})?)?/)?.[0] ?? '',
-        purchaseAccount: (cells[3] ?? '').trim()
+        purchaseAccount: (cells[3] ?? '').trim(),
+        rejectionReason: text.match(/(?:拒绝原因|拒绝理由)[：:\s]+([^\r\n]+)/)?.[1]?.trim()
       });
     }
 

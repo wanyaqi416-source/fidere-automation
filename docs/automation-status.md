@@ -61,7 +61,7 @@
 | OPEN-BH-003 Bahrain Approve Happy Path | P1 | Client+Admin+Third Party | Mutation Ready | No | Not Run | Not Run | External / On demand |
 | WS-001 Wealth Subscribe Validation | P1 | Client | Ready | N/A | N/A | Passed | Default / Read-only |
 | Wealth Subscribe Dry Run | P1 | Client+Admin | Ready | N/A | Blocked | Passed | Default / Read-only |
-| WS-002 Wealth Subscribe Reject | P1 | Client+Admin | Blocked | No | Not Run | Not Run | BLOCKED_ADMIN_FORM / BALANCE_RULE |
+| WS-002 Wealth Subscribe Reject | P1 | Client+Admin | Ready | Yes | Passed | Passed | WS002-20260909-173401真实执行一次：1.60 USD认购后拒绝，资金恢复，无新增有效持仓；Money / Explicit authorization only |
 | WS-003 Wealth Subscribe Approve | P1 | Client+Admin | Ready | Yes | Passed | Passed | Money / Explicit authorization only |
 | WR-001 Wealth Redeem Validation | P1 | Client | Ready | N/A | N/A | Passed | Default / Read-only |
 | Wealth Redeem Dry Run | P1 | Client+Admin | Ready | N/A | N/A | Passed | Default / Read-only |

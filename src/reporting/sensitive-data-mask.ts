@@ -7,6 +7,7 @@ const allowedBusinessFields = new Set([
   'digitalAddressVerificationCount', 'digitalAddressApprovalCount',
   'purchaseAccount', 'settlementAccount', 'subscriptionOrderId', 'redemptionOrderId', 'holdingOrderId',
   'wealthClientStatus', 'wealthAdminStatus', 'wealthProductId', 'wealthBalanceSnapshots',
+  'wealthRejectionReason', 'wealthHoldingEvidence',
   'sourceRunId',
   'candidateStages',
   'registrationUser',

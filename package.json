@@ -124,6 +124,8 @@
     "install:browsers": "playwright install",
     "test:wealth:preflight": "playwright test tests/e2e/wealth/wealth-journey.preflight.spec.ts --project=workflows --workers=1 --retries=0 --repeat-each=1",
     "test:wealth:subscribe:approve": "playwright test tests/e2e/wealth/wealth-subscribe.happy-path.spec.ts --project=workflows --workers=1 --retries=0 --repeat-each=1",
+    "test:wealth:subscribe:reject": "playwright test tests/e2e/wealth/wealth-subscribe-reject.spec.ts --project=workflows --workers=1 --retries=0 --repeat-each=1",
+    "test:wealth:subscribe:reject:preflight": "playwright test tests/e2e/wealth/wealth-subscribe-reject.preflight.spec.ts --project=workflows --workers=1 --retries=0 --repeat-each=1",
     "test:wealth:unit": "playwright test tests/reporting/wealth-journey.spec.ts --project=reporting --workers=1 --retries=0",
     "test:admin:manual-withdrawal:dry-run": "playwright test tests/e2e/admin-manual-withdrawal/manual-withdrawal.dry-run.spec.ts --project=workflows --no-deps --workers=1 --retries=0 --repeat-each=1",
     "test:admin:manual-withdrawal": "playwright test tests/e2e/admin-manual-withdrawal/manual-withdrawal.spec.ts --project=workflows --no-deps --workers=1 --retries=0 --repeat-each=1",

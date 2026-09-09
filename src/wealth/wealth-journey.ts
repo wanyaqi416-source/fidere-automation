@@ -11,6 +11,8 @@ import { Decimal } from '../utils/money';
 
 export type WealthJourneyEvidence = {
   runId: string; kind: 'subscription' | 'redemption'; identityHash: string; userId?: string;
+  decision?: 'approve' | 'reject'; adminRejectionClicks?: number; rejectionReason?: string;
+  rejectionStage?: string; positionsAfter?: WealthJourneyEvidence['oldPositions'];
   productName?: string; productId?: string; holdingOrderId?: string; purchaseAccount?: string; settlementAccount?: string;
   amount?: string; currency?: string; fee?: string; expectedDebit?: string; expectedCredit?: string;
   before?: AccountBalanceSnapshot; submitted?: AccountBalanceSnapshot; after?: AccountBalanceSnapshot;
@@ -21,14 +23,17 @@ export type WealthJourneyEvidence = {
 };
 
 export class WealthJourneyStore {
-  readonly states = new FlowStateStore();
+  readonly states: FlowStateStore;
   state: FlowResumeState;
   evidence: WealthJourneyEvidence;
   private readonly path: string;
 
-  constructor(kind: WealthJourneyEvidence['kind'], runId: string, email: string, resume = false) {
+  constructor(kind: WealthJourneyEvidence['kind'], runId: string, email: string, resume = false,
+    options: { decision?: 'approve' | 'reject'; rootDirectory?: string } = {}) {
     const flowId = `wealth-${kind}`;
-    this.path = resolve('.flow-state', flowId, `${runId}.evidence`);
+    const root = options.rootDirectory ?? resolve('.flow-state');
+    this.states = new FlowStateStore(root);
+    this.path = this.states.pathFor(flowId, runId).replace(/\.json$/, '.evidence');
     const existing = this.states.load(flowId, runId);
     const identityHash = createHash('sha256').update(email.toLowerCase()).digest('hex');
     if (existing) {
@@ -36,6 +41,9 @@ export class WealthJourneyStore {
       this.state = existing;
       this.evidence = JSON.parse(readFileSync(this.path, 'utf8'));
       if (this.evidence.identityHash !== identityHash || this.evidence.kind !== kind) throw new Error('Wealth Resume identity mismatch.');
+      if ((this.evidence.decision ?? 'approve') !== (options.decision ?? 'approve')) {
+        throw new Error('Wealth Resume decision mismatch: approval and rejection cannot operate each other\'s Run.');
+      }
     } else {
       if (resume) throw new Error('Wealth Resume state not found.');
       if (this.states.list(flowId).some(s => s.stage !== 'COMPLETED' && stageIndex(s.stage) >= stageIndex('CLIENT_SUBMIT_ATTEMPTED'))) {
@@ -43,9 +51,20 @@ export class WealthJourneyStore {
       }
       this.state = createPreparedFlowState({ flowId, runId });
       this.evidence = { runId, kind, identityHash, oldOrderIds: [], confirmationClicks: 0,
-        securityVerificationClicks: 0, adminApprovalClicks: 0, completed: false };
+        securityVerificationClicks: 0, adminApprovalClicks: 0, completed: false, decision: options.decision ?? 'approve' };
       this.save();
     }
+  }
+
+  reserveRejectionAttempt(): void {
+    if (this.evidence.decision !== 'reject' || this.evidence.adminRejectionClicks || this.evidence.adminApprovalClicks ||
+      this.state.stage !== 'ADMIN_LOCATED' || !this.evidence.clientOrder || this.evidence.candidateCount !== 1) {
+      throw new Error('Rejection requires this Run\'s original order, one verified candidate and zero prior Admin attempts.');
+    }
+    // An exclusive tombstone survives a crash before the evidence write; never click after EEXIST.
+    writeFileSync(`${this.path}.reject-attempt`, new Date().toISOString(), { flag: 'wx' });
+    this.evidence.adminRejectionClicks = 1;
+    this.save();
   }
 
   save(): void {
