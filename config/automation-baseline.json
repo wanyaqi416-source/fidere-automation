@@ -1,0 +1,329 @@
+{
+  "schemaVersion": 1,
+  "version": "FIDERE AUTOMATION BASELINE V1",
+  "createdAt": "2026-08-28T09:23:37.201Z",
+  "sourceRunId": "2026-08-28_16-11-38-c459b1e5",
+  "sourceCommand": "npm run regression",
+  "summary": {
+    "total": 34,
+    "passed": 32,
+    "passedWithWarning": 2,
+    "failed": 0,
+    "manualReview": 0
+  },
+  "cases": [
+    {
+      "key": "未提供::AUTO-0A2AA9BD::客户端账户页面可以通过一级菜单打开",
+      "caseId": "AUTO-0A2AA9BD",
+      "flowId": "未提供",
+      "module": "客户端",
+      "name": "客户端账户页面可以通过一级菜单打开",
+      "outcome": "PASS",
+      "warnings": []
+    },
+    {
+      "key": "未提供::AUTO-121BFE7A::客户端投资一级菜单当前仅作为入口展示",
+      "caseId": "AUTO-121BFE7A",
+      "flowId": "未提供",
+      "module": "客户端",
+      "name": "客户端投资一级菜单当前仅作为入口展示",
+      "outcome": "PASS",
+      "warnings": []
+    },
+    {
+      "key": "未提供::AUTO-1D1897E6::DP-001 入金必填项与金额校验",
+      "caseId": "AUTO-1D1897E6",
+      "flowId": "未提供",
+      "module": "客户端",
+      "name": "DP-001 入金必填项与金额校验",
+      "outcome": "PASS",
+      "warnings": []
+    },
+    {
+      "key": "未提供::AUTO-24514F9B::客户端自动登录并生成最新状态",
+      "caseId": "AUTO-24514F9B",
+      "flowId": "未提供",
+      "module": "未分类",
+      "name": "客户端自动登录并生成最新状态",
+      "outcome": "PASS",
+      "warnings": []
+    },
+    {
+      "key": "未提供::AUTO-2728E132::DP-001 入金账户与币种矩阵",
+      "caseId": "AUTO-2728E132",
+      "flowId": "未提供",
+      "module": "客户端",
+      "name": "DP-001 入金账户与币种矩阵",
+      "outcome": "PASS",
+      "warnings": []
+    },
+    {
+      "key": "未提供::AUTO-27562F08::客户端仪表板页面可以通过一级菜单打开",
+      "caseId": "AUTO-27562F08",
+      "flowId": "未提供",
+      "module": "客户端",
+      "name": "客户端仪表板页面可以通过一级菜单打开",
+      "outcome": "PASS",
+      "warnings": []
+    },
+    {
+      "key": "未提供::AUTO-2B334975::资金互转入口、方向和账户组合校验",
+      "caseId": "AUTO-2B334975",
+      "flowId": "未提供",
+      "module": "客户端",
+      "name": "资金互转入口、方向和账户组合校验",
+      "outcome": "PASS",
+      "warnings": []
+    },
+    {
+      "key": "未提供::AUTO-4E6AF2D4::WD-001 出金账户与币种矩阵",
+      "caseId": "AUTO-4E6AF2D4",
+      "flowId": "未提供",
+      "module": "客户端",
+      "name": "WD-001 出金账户与币种矩阵",
+      "outcome": "PASS",
+      "warnings": []
+    },
+    {
+      "key": "未提供::AUTO-57CAE48F::starts Chromium and opens the configured Admin environment",
+      "caseId": "AUTO-57CAE48F",
+      "flowId": "未提供",
+      "module": "管理端",
+      "name": "starts Chromium and opens the configured Admin environment",
+      "outcome": "PASS",
+      "warnings": []
+    },
+    {
+      "key": "未提供::AUTO-7D296794::券商转信托费用预览校验",
+      "caseId": "AUTO-7D296794",
+      "flowId": "未提供",
+      "module": "客户端",
+      "name": "券商转信托费用预览校验",
+      "outcome": "PASS",
+      "warnings": []
+    },
+    {
+      "key": "未提供::AUTO-7EA74D00::兑换弹窗按账户类型和币种选择真实资产",
+      "caseId": "AUTO-7EA74D00",
+      "flowId": "未提供",
+      "module": "客户端兑换",
+      "name": "兑换弹窗按账户类型和币种选择真实资产",
+      "outcome": "PASS",
+      "warnings": []
+    },
+    {
+      "key": "未提供::AUTO-9873C0CB::Money Mutation Guard默认关闭且限制单次动作",
+      "caseId": "AUTO-9873C0CB",
+      "flowId": "未提供",
+      "module": "未分类",
+      "name": "Money Mutation Guard默认关闭且限制单次动作",
+      "outcome": "PASS",
+      "warnings": []
+    },
+    {
+      "key": "未提供::AUTO-9FF1102A::未登录用户不能访问客户端受保护页面",
+      "caseId": "AUTO-9FF1102A",
+      "flowId": "未提供",
+      "module": "客户端",
+      "name": "未登录用户不能访问客户端受保护页面",
+      "outcome": "PASS",
+      "warnings": []
+    },
+    {
+      "key": "未提供::AUTO-B1A4D7A9::Oracle Engine统一五种业务结果",
+      "caseId": "AUTO-B1A4D7A9",
+      "flowId": "未提供",
+      "module": "未分类",
+      "name": "Oracle Engine统一五种业务结果",
+      "outcome": "PASS",
+      "warnings": []
+    },
+    {
+      "key": "未提供::AUTO-BA386319::客户端信托服务页面可以通过一级菜单打开",
+      "caseId": "AUTO-BA386319",
+      "flowId": "未提供",
+      "module": "客户端",
+      "name": "客户端信托服务页面可以通过一级菜单打开",
+      "outcome": "PASS",
+      "warnings": []
+    },
+    {
+      "key": "未提供::AUTO-C589C785::Resume State只保存白名单字段且禁止重新创建",
+      "caseId": "AUTO-C589C785",
+      "flowId": "未提供",
+      "module": "未分类",
+      "name": "Resume State只保存白名单字段且禁止重新创建",
+      "outcome": "PASS",
+      "warnings": []
+    },
+    {
+      "key": "未提供::AUTO-C7446C7C::ClientAdminApprovalFlow执行统一生命周期且不接触DOM",
+      "caseId": "AUTO-C7446C7C",
+      "flowId": "未提供",
+      "module": "未分类",
+      "name": "ClientAdminApprovalFlow执行统一生命周期且不接触DOM",
+      "outcome": "PASS",
+      "warnings": []
+    },
+    {
+      "key": "未提供::AUTO-CF375917::客户端首页可以正常打开",
+      "caseId": "AUTO-CF375917",
+      "flowId": "未提供",
+      "module": "客户端",
+      "name": "客户端首页可以正常打开",
+      "outcome": "PASS",
+      "warnings": []
+    },
+    {
+      "key": "未提供::AUTO-D7991253::兑换金额和不支持币种组合执行真实页面校验",
+      "caseId": "AUTO-D7991253",
+      "flowId": "未提供",
+      "module": "客户端兑换",
+      "name": "兑换金额和不支持币种组合执行真实页面校验",
+      "outcome": "PASS",
+      "warnings": []
+    },
+    {
+      "key": "未提供::AUTO-D956F340::客户端交易页面可以通过一级菜单打开",
+      "caseId": "AUTO-D956F340",
+      "flowId": "未提供",
+      "module": "客户端",
+      "name": "客户端交易页面可以通过一级菜单打开",
+      "outcome": "PASS",
+      "warnings": []
+    },
+    {
+      "key": "未提供::AUTO-EABD35C1::资金互转金额边界校验",
+      "caseId": "AUTO-EABD35C1",
+      "flowId": "未提供",
+      "module": "客户端",
+      "name": "资金互转金额边界校验",
+      "outcome": "PASS",
+      "warnings": []
+    },
+    {
+      "key": "未提供::AUTO-ED976C05::登录状态可以被客户端测试复用",
+      "caseId": "AUTO-ED976C05",
+      "flowId": "未提供",
+      "module": "客户端",
+      "name": "登录状态可以被客户端测试复用",
+      "outcome": "PASS",
+      "warnings": []
+    },
+    {
+      "key": "未提供::DP-003-DRY-RUN::香港账户USD入金认领成功闭环Dry Run",
+      "caseId": "DP-003-DRY-RUN",
+      "flowId": "未提供",
+      "module": "Client + Admin入金",
+      "name": "香港账户USD入金认领成功闭环Dry Run",
+      "outcome": "PASS",
+      "warnings": []
+    },
+    {
+      "key": "未提供::EX-002::安全密钥弹窗提交前验证",
+      "caseId": "EX-002",
+      "flowId": "未提供",
+      "module": "客户端兑换",
+      "name": "安全密钥弹窗提交前验证",
+      "outcome": "PASS",
+      "warnings": []
+    },
+    {
+      "key": "未提供::EX-003::兑换提交前校验",
+      "caseId": "EX-003",
+      "flowId": "未提供",
+      "module": "客户端兑换",
+      "name": "兑换提交前校验",
+      "outcome": "PASS",
+      "warnings": []
+    },
+    {
+      "key": "未提供::EX-004::客户端兑换成交记录只读复核",
+      "caseId": "EX-004",
+      "flowId": "未提供",
+      "module": "客户端兑换",
+      "name": "客户端兑换成交记录只读复核",
+      "outcome": "PASS",
+      "warnings": []
+    },
+    {
+      "key": "未提供::WD-003-DRY::出金Admin批准表单Dry Run",
+      "caseId": "WD-003-DRY",
+      "flowId": "未提供",
+      "module": "Withdrawal",
+      "name": "出金Admin批准表单Dry Run",
+      "outcome": "PASS",
+      "warnings": []
+    },
+    {
+      "key": "未提供::WD-RECON::历史法币出金只读Reconciliation",
+      "caseId": "WD-RECON",
+      "flowId": "未提供",
+      "module": "Client + Admin出金",
+      "name": "历史法币出金只读Reconciliation",
+      "outcome": "PASS",
+      "warnings": []
+    },
+    {
+      "key": "deposit-validation::DP-001::入金提交前Validation",
+      "caseId": "DP-001",
+      "flowId": "deposit-validation",
+      "module": "客户端入金",
+      "name": "入金提交前Validation",
+      "outcome": "PASS",
+      "warnings": []
+    },
+    {
+      "key": "transfer-jurisdiction-to-broker::TR-003::资金互转审核通过闭环 - Oracle分级裁决",
+      "caseId": "TR-003",
+      "flowId": "transfer-jurisdiction-to-broker",
+      "module": "资金互转",
+      "name": "资金互转审核通过闭环 - Oracle分级裁决",
+      "outcome": "PASS_WITH_WARNING",
+      "warnings": [
+        "资金互转已确认完成，但客户端全局交易流水未找到对应Transfer记录。"
+      ]
+    },
+    {
+      "key": "transfer-jurisdiction-to-broker::TR-003::TR-003批准后Client只读后查",
+      "caseId": "TR-003",
+      "flowId": "transfer-jurisdiction-to-broker",
+      "module": "资金业务",
+      "name": "TR-003批准后Client只读后查",
+      "outcome": "PASS_WITH_WARNING",
+      "warnings": [
+        "资金互转已确认完成，但客户端全局交易流水未找到唯一对应Transfer记录。"
+      ]
+    },
+    {
+      "key": "transfer-validation::PLATFORM-CANDIDATE::Candidate Matcher公共契约",
+      "caseId": "PLATFORM-CANDIDATE",
+      "flowId": "transfer-validation",
+      "module": "客户端资金互转",
+      "name": "Candidate Matcher公共契约",
+      "outcome": "PASS",
+      "warnings": []
+    },
+    {
+      "key": "transfer-validation::TR-001::资金互转提交前校验",
+      "caseId": "TR-001",
+      "flowId": "transfer-validation",
+      "module": "客户端资金互转",
+      "name": "资金互转提交前校验",
+      "outcome": "PASS",
+      "warnings": []
+    },
+    {
+      "key": "withdrawal-validation::WD-001::出金提交前Validation",
+      "caseId": "WD-001",
+      "flowId": "withdrawal-validation",
+      "module": "客户端出金",
+      "name": "出金提交前Validation",
+      "outcome": "PASS",
+      "warnings": [
+        "当前页面允许超出可用余额的金额进入确认态，余额不足需在安全验证或服务端提交阶段校验。",
+        "当前Sandbox确认页手续费和实际扣款显示“-”，真实金额Oracle尚未形成。"
+      ]
+    }
+  ]
+}

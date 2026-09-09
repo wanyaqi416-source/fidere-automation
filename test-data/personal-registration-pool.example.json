@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "entries": [
+    {
+      "id": "sandbox-personal-001",
+      "email": "replace-with-reviewed-sandbox-email",
+      "phone": "replace-with-reviewed-sandbox-phone",
+      "sandboxOnly": true,
+      "status": "available"
+    }
+  ]
+}

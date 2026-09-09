@@ -1,0 +1,46 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "forceConsistentCasingInFileNames": true,
+    "types": [
+      "node",
+      "@playwright/test"
+    ],
+    "paths": {
+      "@config/*": [
+        "./src/config/*"
+      ],
+      "@fixtures/*": [
+        "./fixtures/*"
+      ],
+      "@client-pages/*": [
+        "./pages/client/*"
+      ],
+      "@admin-pages/*": [
+        "./pages/admin/*"
+      ],
+      "@utils/*": [
+        "./src/utils/*"
+      ],
+      "@data/*": [
+        "./src/data/*"
+      ]
+    },
+    "noEmit": true
+  },
+  "include": [
+    "playwright.config.ts",
+    "global-setup.ts",
+    "scripts/**/*.ts",
+    "reporters/**/*.ts",
+    "fixtures/**/*.ts",
+    "pages/**/*.ts",
+    "src/**/*.ts",
+    "tests/**/*.ts"
+  ]
+}
