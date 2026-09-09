@@ -137,6 +137,12 @@
     "test:digital-address:dry-run": "playwright test tests/e2e/digital-address/digital-address.dry-run.spec.ts --project=workflows --no-deps --workers=1 --retries=0 --repeat-each=1",
     "test:digital-address:validation": "playwright test tests/e2e/digital-address/digital-address.dry-run.spec.ts --grep DA-001 --project=workflows --no-deps --workers=1 --retries=0 --repeat-each=1",
     "test:digital-address": "playwright test tests/e2e/digital-address/digital-address.approval.spec.ts --project=workflows --no-deps --workers=1 --retries=0 --repeat-each=1",
+    "test:admin:opening:dry-run": "playwright test tests/e2e/account-opening/admin-operations-opening.dry-run.spec.ts --project=workflows --no-deps --workers=1 --retries=0 --repeat-each=1",
+    "test:admin:opening:bh:dry-run": "npm run test:admin:opening:dry-run -- --grep ADMIN-OPEN-BH-DRY",
+    "test:admin:opening:sg:dry-run": "npm run test:admin:opening:dry-run -- --grep ADMIN-OPEN-SG-DRY",
+    "test:admin:opening:bh": "playwright test tests/e2e/account-opening/admin-operations-opening.spec.ts --grep ADMIN-OPEN-BH-001 --project=workflows --no-deps --workers=1 --retries=0 --repeat-each=1",
+    "test:admin:opening:sg": "playwright test tests/e2e/account-opening/admin-operations-opening.spec.ts --grep ADMIN-OPEN-SG-001 --project=workflows --no-deps --workers=1 --retries=0 --repeat-each=1",
+    "test:admin:opening:unit": "playwright test tests/reporting/admin-operations-opening.spec.ts --project=reporting --workers=1 --retries=0 --repeat-each=1",
     "typecheck": "tsc --noEmit"
   },
   "keywords": [

@@ -117,6 +117,15 @@ DP-003单次提交的`香港账户 / USD / 11.97`申请先经只读Reconciliatio
 
 ## Platform Model
 
+### Admin Operations Opening 2026-09-09
+
+新增独立 `ADMIN-OPEN-BH-001` 和 `ADMIN-OPEN-SG-001`，入口为运营客户页面，不复用Client开户或KYC审批路径。
+两条真实提交前Dry Run通过：AH原客户唯一，两地区均未开通；必填收款人、账号及零费用表单可填写，最终确认0次。
+随后用户授权AH两地区均开通且费用不填；`ADMIN-OPEN-BH-AH-20260909`与`ADMIN-OPEN-SG-AH-20260909`顺序真实执行成功。
+两地区候选各1，最终确认各1，费用框保持空白；重新查询均为已开户且账号和收款人正确。两条开户用例Ready、Real E2E Verified=Yes、结果PASS；原Run均COMPLETED且禁止重跑。
+Admin临时权限已关闭，三个Mutation开关均为false。AH现在不再适合作为这两个地区的首次开户Dry Run数据；能力状态不因此降级。
+支持个人/企业参数化；不重新注册、不签署、不充值、不修改冻结Baseline。详见[运营客户地区开户](./admin-operations-account-opening.md)。
+
 ### Webull Opening 2026-09-09
 
 `OPEN-WEBULL-001`预检Ready；`OPEN-WEBULL-003`完整开户Ready、Real E2E Verified=Yes。

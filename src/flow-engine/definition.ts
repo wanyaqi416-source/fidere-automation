@@ -1,6 +1,7 @@
 export type FlowStatus = 'Ready' | 'Mutation Ready' | 'In Progress' | 'Pending' | 'Blocked';
 
 export type FlowScope =
+  | 'Admin'
   | 'Client'
   | 'Client+Admin'
   | 'Client/Admin'

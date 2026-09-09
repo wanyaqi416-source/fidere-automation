@@ -24,7 +24,7 @@ export type {
   TestLevel
 } from '../src/flow-engine/definition';
 
-export type FlowMenuSection = 'Client基础' | '注册' | '兑换' | '资金互转' | '入金' | '出金' | '信托服务' | '未实现流程';
+export type FlowMenuSection = 'Client基础' | '注册' | '兑换' | '资金互转' | '入金' | '出金' | '信托服务' | '运营' | '未实现流程';
 export type FlowDefinition = BusinessFlowDefinition & { menuSection: FlowMenuSection };
 
 export type ReportAction = {
@@ -152,6 +152,33 @@ export function findFlowDefinition(
 }
 
 export const FLOW_REGISTRY: readonly FlowDefinition[] = [
+  ...([['BH', '巴林'], ['SG', '新加坡']] as const).flatMap(([country, label]) => [
+    defineFlow({
+      id: `admin-operations-opening-${country.toLowerCase()}-dry-run`, caseId: `ADMIN-OPEN-${country}-DRY`,
+      name: `运营客户${label}开户提交前验证`, module: '运营客户开户', priority: 'P0', scope: 'Admin',
+      type: 'Dry Run / Read-only', status: 'Ready', implemented: true, changesData: false, affectsMoney: false,
+      requiresClient: false, requiresAdmin: true, requiresThirdParty: false, supportsResume: false,
+      adminAction: 'None', clientAction: '无Client操作',
+      npmScript: `test:admin:opening:${country.toLowerCase()}:dry-run`, safetySwitch: null,
+      defaultRegression: false, moneyRegression: false, realE2EVerified: null,
+      businessResult: 'N/A', automationResult: 'Passed', menuSection: '运营', menuOrder: country === 'BH' ? 110 : 112,
+      primaryOracles: ['原客户邮箱/UID/类型/启用状态匹配且本地区未开通', '本地区表单真实可填', '最终确认0次且账户仍未开通'],
+      description: 'Admin运营 -> 客户；只验证零费用开户表单并取消，不使用Client开户申请或KYC开户审核页面。'
+    }),
+    defineFlow({
+      id: `admin-operations-opening-${country.toLowerCase()}`, caseId: `ADMIN-OPEN-${country}-001`,
+      name: `运营客户${label}账户开通`, module: '运营客户开户', priority: 'P0', scope: 'Admin',
+      type: 'E2E / Mutation', status: 'Ready', implemented: true, changesData: true, affectsMoney: false,
+      requiresClient: false, requiresAdmin: true, requiresThirdParty: false, supportsResume: true,
+      adminAction: 'None', clientAction: '无Client操作',
+      npmScript: `test:admin:opening:${country.toLowerCase()}`, safetySwitch: 'ALLOW_ADMIN_MUTATION_TESTS',
+      defaultRegression: false, moneyRegression: false, realE2EVerified: true,
+      businessResult: 'Passed', automationResult: 'Passed', menuSection: '运营', menuOrder: country === 'BH' ? 111 : 113,
+      primaryOracles: ['原客户候选唯一且本地区未开通', '开户弹窗客户和地区二次匹配',
+        '本Run最终确认最多1次', '重新查询同一客户本地区已开户，账号和收款人与配置一致'],
+      description: `2026-09-09 ADMIN-OPEN-${country}-AH-20260909真实通过：原AH客户唯一，费用框保持空白，最终确认1次；重新查询${label}已开户且账户信息一致。原Run已COMPLETED，禁止重跑。独立Admin直接开户，收费分支仍待付款账户和扣费规则确认。`
+    })
+  ]),
   defineFlow({
     id: 'trust-beneficiary-reconciliation', caseId: 'TRUST-BEN-003', name: '信托受益人提交结果只读复核',
     module: '信托服务', priority: 'P0', scope: 'Client+Admin', type: 'Read-only / Reconciliation', status: 'Ready',
