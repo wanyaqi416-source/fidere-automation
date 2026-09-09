@@ -73,43 +73,66 @@ export class DepositClaimListPage {
   }
 
   async readCurrentPageRecords(): Promise<AdminDepositCandidate[]> {
-    const headers = (await this.table.getByRole('columnheader').allTextContents())
-      .map(value => value.trim());
-    const records: AdminDepositCandidate[] = [];
-    for (const row of await this.table.getByRole('row').all()) {
-      const cellCount = await row.getByRole('cell').count();
-      if (cellCount === 0 || cellCount < headers.length) continue;
-      records.push(await this.readRow(row, headers));
-    }
-    return records;
+    // Read a complete DOM snapshot, not cells from different renders while pagination is loading.
+    const snapshot = await this.table.evaluate(table => ({
+      headers: Array.from(table.querySelectorAll('th')).map(cell => (cell.textContent ?? '').trim()),
+      rows: Array.from(table.querySelectorAll('tbody tr')).map(row =>
+        Array.from(row.querySelectorAll('td')).map(cell => (cell as HTMLElement).innerText.trim()))
+    }));
+    if (!snapshot.headers.includes('提交时间')) return [];
+    return snapshot.rows.filter(cells => cells.length === snapshot.headers.length)
+      .map(cells => this.parseRow(cells, snapshot.headers));
   }
 
   async readAllFilteredRecords(maxPages = 100): Promise<AdminDepositCandidate[]> {
     await this.goToFirstPage();
     const records: AdminDepositCandidate[] = [];
     const visitedPages = new Set<string>();
+    let expectedTotal: number | undefined;
 
     for (let pageNumber = 1; pageNumber <= maxPages; pageNumber += 1) {
+      await this.waitForCompletePage();
+      const range = await this.readPaginationRange();
+      expectedTotal ??= range.total;
+      if (range.total !== expectedTotal || range.start !== (range.total === 0 ? 0 : records.length + 1)) {
+        throw new Error('Admin Deposit pagination skipped a range or changed totals; candidate collection is incomplete.');
+      }
       const current = await this.readCurrentPageRecords();
+      const afterRead = await this.readPaginationRange();
+      if (range.start !== afterRead.start || range.end !== afterRead.end || range.total !== afterRead.total ||
+          current.length !== (range.total === 0 ? 0 : range.end - range.start + 1)) {
+        throw new Error('Admin Deposit pagination changed while reading rows; candidate collection is incomplete.');
+      }
       const signature = current.map(record => record.recordKey).join('|');
-      if (visitedPages.has(signature)) break;
+      if (visitedPages.has(signature)) throw new Error('Admin Deposit pagination repeated; candidate collection is incomplete.');
       visitedPages.add(signature);
       records.push(...current);
 
       const nextButton = await this.paginationButton('next');
-      if (!nextButton || await nextButton.isDisabled()) break;
+      if (!nextButton || await nextButton.isDisabled()) {
+        if (records.length !== expectedTotal) throw new Error('Admin Deposit collected rows do not match the displayed total; candidate collection is incomplete.');
+        return records;
+      }
       await nextButton.click();
-      await expect.poll(async () =>
-        (await this.readCurrentPageRecords()).map(record => record.recordKey).join('|')
-      ).not.toBe(signature);
+      await this.waitForChangedPage(signature);
     }
 
-    return records;
+    throw new Error('Admin Deposit page limit reached; candidate collection is incomplete.');
+  }
+
+  async readAvailableActions(record: AdminDepositCandidate): Promise<string[]> {
+    const row = await this.rowForRecord(record);
+    const actions: string[] = [];
+    for (const button of await row.getByRole('button').all()) {
+      if (await button.isVisible() && await button.isEnabled()) actions.push((await button.innerText()).trim());
+    }
+    return actions;
   }
 
   async rowForRecord(record: AdminDepositCandidate): Promise<Locator> {
     await this.goToFirstPage();
     for (let pageNumber = 1; pageNumber <= 100; pageNumber += 1) {
+      await this.waitForCompletePage();
       const headers = (await this.table.getByRole('columnheader').allTextContents())
         .map(value => value.trim());
       for (const row of await this.table.getByRole('row').all()) {
@@ -122,9 +145,7 @@ export class DepositClaimListPage {
       if (!nextButton || await nextButton.isDisabled()) break;
       const before = (await this.readCurrentPageRecords()).map(item => item.recordKey).join('|');
       await nextButton.click();
-      await expect.poll(async () =>
-        (await this.readCurrentPageRecords()).map(item => item.recordKey).join('|')
-      ).not.toBe(before);
+      await this.waitForChangedPage(before);
     }
     throw new Error('Admin Deposit candidate row was no longer present in the filtered list.');
   }
@@ -136,28 +157,31 @@ export class DepositClaimListPage {
   }
 
   private async readRow(row: Locator, headers: readonly string[]): Promise<AdminDepositCandidate> {
-    const cells = row.getByRole('cell');
-    const read = async (aliases: readonly string[]): Promise<string> => {
+    return this.parseRow(await row.getByRole('cell').allInnerTexts(), headers);
+  }
+
+  private parseRow(cells: readonly string[], headers: readonly string[]): AdminDepositCandidate {
+    const read = (aliases: readonly string[]): string => {
       const index = headers.findIndex(header => aliases.includes(header));
       if (index < 0) throw new Error(`Admin Deposit list is missing column: ${aliases.join(' / ')}`);
-      return (await cells.nth(index).innerText()).trim();
+      return cells[index].trim();
     };
 
-    const submittedAtText = await read(headerAliases.submittedAt);
-    const amountText = await read(headerAliases.amount);
-    const actualAmountText = await read(headerAliases.actualAmount);
+    const submittedAtText = read(headerAliases.submittedAt);
+    const amountText = read(headerAliases.amount);
+    const actualAmountText = read(headerAliases.actualAmount);
     const currency = amountText.match(/\b[A-Z]{3}\b/)?.[0];
     if (!currency) throw new Error('Admin Deposit row did not display a currency code.');
     const submittedAtMs = this.parseAdminTime(submittedAtText);
-    const accountType = await read(headerAliases.accountType);
+    const accountType = read(headerAliases.accountType);
     const requestedAmount = decimalFromText(amountText, 'Admin Deposit requested amount').toString();
     const actualAmount = decimalFromText(actualAmountText, 'Admin Deposit actual amount').toString();
-    const payerText = await read(headerAliases.payer);
-    const channel = await read(headerAliases.channel);
-    const reference = await read(headerAliases.reference);
-    const matchedCustomerText = await read(headerAliases.matchedCustomer);
-    const matchStatus = await read(headerAliases.matchStatus);
-    const status = await read(headerAliases.status);
+    const payerText = read(headerAliases.payer);
+    const channel = read(headerAliases.channel);
+    const reference = read(headerAliases.reference);
+    const matchedCustomerText = read(headerAliases.matchedCustomer);
+    const matchStatus = read(headerAliases.matchStatus);
+    const status = read(headerAliases.status);
     const recordKey = createHash('sha256')
       .update([
         submittedAtText,
@@ -227,11 +251,37 @@ export class DepositClaimListPage {
       if (!previous || await previous.isDisabled()) return;
       const before = (await this.readCurrentPageRecords()).map(item => item.recordKey).join('|');
       await previous.click();
-      await expect.poll(async () =>
-        (await this.readCurrentPageRecords()).map(item => item.recordKey).join('|')
-      ).not.toBe(before);
+      await this.waitForChangedPage(before);
     }
     throw new Error('Admin Deposit pagination exceeded 100 pages.');
+  }
+
+  private async waitForCompletePage(): Promise<void> {
+    await expect.poll(async () => {
+      const range = this.page.getByText(/^\d+\s*[-\u2013]\s*\d+\s+of\s+\d+$/);
+      if (await range.count() !== 1) return false;
+      const numbers = (await range.innerText()).match(/\d+/g)!.map(Number);
+      const expected = numbers[2] === 0 ? 0 : numbers[1] - numbers[0] + 1;
+      return (await this.readCurrentPageRecords()).length === expected;
+    }, { message: 'Admin Deposit rows did not match the visible pagination range.' }).toBe(true);
+  }
+
+  private async readPaginationRange(): Promise<{ start: number; end: number; total: number }> {
+    const text = await this.page.getByText(/^\d+\s*[-\u2013]\s*\d+\s+of\s+\d+$/).innerText();
+    const [start, end, total] = text.match(/\d+/g)!.map(Number);
+    if (![start, end, total].every(Number.isSafeInteger) ||
+        (total === 0 ? start !== 0 || end !== 0 : start < 1 || end < start || end > total)) {
+      throw new Error('Admin Deposit pagination range is invalid.');
+    }
+    return { start, end, total };
+  }
+
+  private async waitForChangedPage(previous: string): Promise<void> {
+    await expect.poll(async () => {
+      const rows = await this.readCurrentPageRecords();
+      return rows.length > 0 && rows.map(row => row.recordKey).join('|') !== previous;
+    }, { message: 'Admin Deposit next page has not loaded; a transient empty table is not a new page.' }).toBe(true);
+    await this.waitForCompletePage();
   }
 
   private async paginationButton(direction: 'next' | 'previous'): Promise<Locator | undefined> {

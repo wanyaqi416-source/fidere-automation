@@ -1,5 +1,17 @@
 # Fidere Automation Status
 
+## 2026-09-09 DP-004 入金拒绝新用例
+
+- `deposit-rejection-journey` / `DP-004`：In Progress，Real E2E Verified=No；不覆盖旧 DP-002 历史结果。
+- `DP-004-PREFLIGHT`：Ready，可视化只读预检通过；TEST SANDBOX AH 原KYC/银行地址已通过，香港账户USD余额794.62，拟入金11.56，待处理冲突0。
+- `DP004-AH-20260909` 已获授权执行：Client提交1次，`/api/confirm-deposit` HTTP 200；随后60秒未读取到唯一新增Client入金记录/详情TXN，标记 `DEPOSIT_SUBMISSION_UNCONFIRMED` / `MANUAL_REVIEW`。不能据此断言后端未创建申请。
+- Admin拒绝0次，余额最终断言未执行；原Run处于 `CLIENT_SUBMIT_ATTEMPTED`，只允许原申请只读复核，不得重提。所有Mutation开关已恢复false。
+- 后续只读复核通过：Admin入账认领没有TXN，按真实业务字段扫描324条，香港账户161 → USD104 → 金额11.56为1 → 状态/渠道/原提交时间/用户均为1；原申请状态“待处理”，详情一致。Client候选仍为0，当前余额794.62 USD。原申请已存在，不得新建；此次拒绝/认领/批准均为0，不代表DP-004拒绝闭环已通过。
+- 只读证据：`reports/business/history/2026-09-09_15-55-41-ff215b2e/report.html`。Admin调查已解除对Client TXN的前置依赖；原真实执行报告与提交标记保留。
+- 16:15 经用户授权Resume原申请：重新唯一定位并详情核对，Admin确认拒绝1次，原记录已拒绝；余额794.62=794.62。Client原入金历史在60秒内仍返回missing，因此完整DP-004尚未通过，原状态推进至 `ADMIN_ACTION_DONE`。禁止再次拒绝/新建，所有开关已恢复false。报告：`reports/business/history/2026-09-09_16-16-51-70c01185/report.html`。
+- 16:23 只读复核再次确认Admin原候选1、已拒绝、余额794.62；Client全局流水及入金历史卡片仍未被当前读取器观察到。只读报告：`reports/business/history/2026-09-09_16-23-23-33c3bf13/report.html`，不代表完整拒绝用例PASS。一次中间列表扫描314条/候选0，后续324条/候选1，列表刷新/分页一致性待查；没有因此重提或重复拒绝。类型检查和145项本地单元/报告测试通过。
+- 核心判定保留Client原申请拒绝终态和余额严格不变；授权Resume允许用已核对的唯一Admin业务指纹证明原申请存在，不虚构TXN。旧入金审核通过用例不覆盖、不执行。详见[独立用例与Resume](./deposit-rejection-journey.md)。
+
 本表由`config/flow-registry.ts`中的状态生成原则维护。未实现、缺少可恢复数据或缺少唯一业务Oracle的流程不得标记为Ready。
 
 业务订单编号统一遵循[Business Order ID Model](./business-id-model.md)：资金互转`TRF-*`、兑换`OTC-*`、入金/出金`TXN-*`、理财`INV-*`。流水或Admin侧的独立`TXN-*`必须使用不同字段保存，不做前缀推导。

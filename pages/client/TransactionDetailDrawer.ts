@@ -15,6 +15,7 @@ export type FiatDepositDetail = {
   status: string;
   createdAt: string;
   reviewedAt: string;
+  rejectionReason?: string;
 };
 
 export type FiatWithdrawalDetail = {
@@ -113,7 +114,8 @@ export class TransactionDetailDrawer {
       feeAmount: decimalFromText(feeMatch[1], 'Client Deposit detail fee').toString(),
       status,
       createdAt: await this.readLabeledValue(detailsSection, '创建日期'),
-      reviewedAt: await this.readLabeledValue(detailsSection, '审核时间')
+      reviewedAt: await this.readLabeledValue(detailsSection, '审核时间'),
+      rejectionReason: await this.readOptionalDepositRejectionReason()
     };
   }
 
@@ -121,6 +123,16 @@ export class TransactionDetailDrawer {
     await expect(this.withdrawalTitle).toBeVisible();
     await expect(this.withdrawalRoot).toBeVisible();
     await expect(this.withdrawalRoot.getByText('指示详情', { exact: true })).toBeVisible();
+  }
+
+  private async readOptionalDepositRejectionReason(): Promise<string | undefined> {
+    const labels = this.root.getByText(/^(?:拒绝原因|驳回原因)$/);
+    const visible = [];
+    for (const label of await labels.all()) if (await label.isVisible()) visible.push(label);
+    if (visible.length === 0) return undefined;
+    if (visible.length !== 1) throw new Error('Deposit rejection reason field is ambiguous.');
+    const label = (await visible[0].innerText()).trim();
+    return this.readLabeledValue(this.root, label);
   }
 
   async readFiatWithdrawalDetail(): Promise<FiatWithdrawalDetail> {

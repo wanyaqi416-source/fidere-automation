@@ -42,6 +42,7 @@ Read this file before changing or adding a Flow.
 - If a registered user has pending KYC approval, Resume that user's case. Missing candidates never permit another registration, upload, signature, or Client profile submission.
 
 - Configure staged business fingerprint fields per domain; do not force every Flow to use the same fields.
+- Admin fiat deposit claiming has no TXN column. Match its real customer/account/currency/exact amount/channel/status/submission-time fields; an Admin bank reference is not a Client TXN. Read-only Admin investigation must work even when the Client TXN is unavailable. Never infer identifier mappings, resubmit a deposit, or turn investigation evidence into approval/rejection success.
 - Record candidate count after every stage in the business report.
 - `candidateCount` must equal exactly `1` before opening a mutation path.
 - Never select the first/latest row or match only by amount, user, or time.

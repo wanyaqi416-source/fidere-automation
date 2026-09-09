@@ -19,7 +19,7 @@ export class DepositRejectDrawer {
     await expect(this.drawer.getByRole('button', { name: '确认拒绝', exact: true })).toBeVisible();
   }
 
-  async confirmRejectOnce(reason: string): Promise<void> {
+  async confirmRejectOnce(reason: string, beforeClick?: () => void): Promise<void> {
     if (!env.exchange.allowMoneyTests || !env.allowAdminMutationTests) {
       throw new Error('Deposit rejection requires both money and Admin mutation safety switches.');
     }
@@ -27,6 +27,9 @@ export class DepositRejectDrawer {
       throw new Error('Deposit rejection can only be confirmed once per drawer instance.');
     }
     await this.requireDrawer().getByPlaceholder('请详细说明拒绝的原因...').fill(reason);
+    await expect(this.requireDrawer().getByPlaceholder('请详细说明拒绝的原因...')).toHaveValue(reason);
+    await expect(this.requireDrawer().getByRole('button', { name: '确认拒绝', exact: true })).toBeEnabled();
+    beforeClick?.();
     this.confirmationClicks += 1;
     await this.requireDrawer().getByRole('button', { name: '确认拒绝', exact: true }).click();
   }

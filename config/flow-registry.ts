@@ -932,6 +932,31 @@ export const FLOW_REGISTRY: readonly FlowDefinition[] = [
     description: 'DP-002已通过受控真实执行及只读终态复核：Client原TXN rejected、Admin已拒绝、香港账户HKD余额不变，全局流水可读取同一TXN。'
   }),
   defineFlow({
+    id: 'deposit-rejection-journey', caseId: 'DP-004', name: '现有用户法币入金拒绝闭环',
+    module: 'Client + Admin入金', priority: 'P0', scope: 'Client+Admin', type: 'E2E / Mutation / Money',
+    status: 'In Progress', implemented: true, changesData: true, affectsMoney: true,
+    requiresAdmin: true, requiresThirdParty: false, requiresSecurityKey: false, supportsResume: true,
+    npmScript: 'test:deposit:rejection-journey', safetySwitch: 'ALLOW_MONEY_TESTS',
+    safetySwitches: ['ALLOW_CLIENT_MUTATION_TESTS', 'ALLOW_MONEY_TESTS', 'ALLOW_ADMIN_MUTATION_TESTS'],
+    defaultRegression: false, moneyRegression: true, realE2EVerified: false, orderIdPrefix: 'TXN',
+    clientAction: '原有用户和已批准银行地址单次提交法币入金', adminAction: 'Reject',
+    primaryOracles: ['原提交真实创建：Client详情TXN或授权Resume核对完整Admin业务指纹', 'Admin候选唯一且详情匹配', 'Admin原申请拒绝终态',
+      'Client原申请已拒绝，金额币种与提交窗口一致，原TXN及拒绝原因一致（如展示）', '最终余额等于提交前余额', '没有重复申请'],
+    secondaryOracles: [], menuSection: '入金', menuOrder: 18.1,
+    description: '独立DP-004，复用已批准用户和地址；命名Run授权、提交/拒绝持久化单次标记；不执行入金通过。'
+  }),
+  defineFlow({
+    id: 'deposit-rejection-preflight', caseId: 'DP-004-PREFLIGHT', name: '入金拒绝闭环提交前预检',
+    module: 'Client + Admin入金', priority: 'P0', scope: 'Client+Admin', type: 'Dry Run',
+    status: 'Ready', implemented: true, changesData: false, affectsMoney: false,
+    requiresAdmin: true, requiresThirdParty: false, requiresSecurityKey: false,
+    npmScript: 'test:deposit:rejection:preflight', safetySwitch: null,
+    defaultRegression: false, moneyRegression: false, realE2EVerified: null,
+    primaryOracles: ['双端认证有效', '原用户KYC及银行地址审核通过', '入金余额和真实表单可读', '待处理冲突数为0'],
+    secondaryOracles: [], menuSection: '入金', menuOrder: 18.2,
+    description: '所有Mutation开关关闭；只读确认原用户、地址、余额、表单和Admin列表，最终提交前停止。'
+  }),
+  defineFlow({
     id: 'deposit',
     caseId: 'DP-003',
     name: '香港账户USD入金认领成功闭环',

@@ -10,6 +10,7 @@ export type ClientDepositHistoryRecord = {
   submittedAtText: string;
   submittedAtMs: number;
   status: string;
+  rejectionReason?: string;
 };
 
 export type ClientDepositHistoryCriteria = {
@@ -166,7 +167,7 @@ export class DepositHistoryPage {
       const amountLine = (await heading.innerText()).trim();
       const currency = amountLine.match(/^[A-Z]{3}/)?.[0];
       const timeText = text.match(/提交时间\s*[:：]?\s*(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}(?::\d{2})?)/)?.[1];
-      const status = text.match(/\b(?:pending|processing|failed)\b|已完成|已拒绝|已取消/i)?.[0];
+      const status = text.match(/\b(?:pending|processing|failed|rejected)\b|已完成|已拒绝|已取消|处理失败/i)?.[0];
       if (!currency || !timeText || !status) {
         throw new Error('Client Deposit history card is missing currency, submission time, or status.');
       }
@@ -181,7 +182,8 @@ export class DepositHistoryPage {
         receivingBankText: bank,
         submittedAtText: timeText,
         submittedAtMs,
-        status
+        status,
+        rejectionReason: text.match(/(?:拒绝原因|驳回原因)\s*[:：]?\s*([^\r\n]+)/)?.[1]?.trim()
       });
     }
     return records;
