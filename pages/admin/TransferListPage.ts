@@ -129,6 +129,7 @@ export class TransferListPage {
 
   async readCurrentPageRecords(): Promise<AdminTransferListRecord[]> {
     await expect(this.table).toBeVisible();
+    await expect(this.table.getByRole('progressbar'), 'Wait for the actual transfer rows, not the loading placeholder').toBeHidden({ timeout: 20_000 });
     const headers = (await this.table.getByRole('columnheader').allTextContents()).map(value =>
       value.trim()
     );
@@ -183,6 +184,7 @@ export class TransferListPage {
     await this.goToFirstPage();
 
     for (let pageNumber = 1; pageNumber <= 100; pageNumber += 1) {
+      await expect(this.table.getByRole('progressbar')).toBeHidden({ timeout: 20_000 });
       const row = this.table
         .getByRole('row')
         .filter({ hasText: adminTransactionId });
@@ -378,6 +380,7 @@ export class TransferListPage {
 
   private async goToFirstPage(): Promise<void> {
     for (let pageNumber = 1; pageNumber <= 100; pageNumber += 1) {
+      await expect(this.table.getByRole('progressbar')).toBeHidden({ timeout: 20_000 });
       const previousButton = await this.paginationButton('previous');
       if (!previousButton || (await previousButton.isDisabled())) {
         return;

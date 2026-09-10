@@ -33,15 +33,21 @@ export class UserToUserTransferPage {
     };
   }
 
-  async confirmOnce(): Promise<void> {
+  async confirmOnce(beforeClick?: () => void): Promise<void> {
     if (this.confirmationCount !== 0) throw new Error('U2U confirmation already attempted; query the original order only.');
     await expect(this.submitButton).toBeEnabled();
+    beforeClick?.();
     this.confirmationCount += 1;
     await this.submitButton.click();
     await this.security.waitForOpen();
   }
 
   confirmationClickCount(): number { return this.confirmationCount; }
+
+  async fillRunNote(runId: string): Promise<void> {
+    if (!/^[A-Z0-9._-]+$/i.test(runId)) throw new Error('Invalid transfer Run ID.');
+    await this.root.getByPlaceholder('填写本次转账说明', { exact: true }).fill(`AUTO_TRANSFER_FEE_${runId}`);
+  }
 
   async readCreatedOrderId(): Promise<string> {
     const order = this.root.getByText(/^TRF-[A-Z0-9-]+$/i);
@@ -102,11 +108,15 @@ export class UserToUserTransferPage {
     };
     await expect.poll(async () => await readField('手续费（从金额内扣）'), { timeout: 20_000 })
       .toMatch(/\d|免费/);
+    const accountLabel = await readField('转出账户');
+    // Verified summary renders the account followed by a currency suffix.
+    const accountName = accountLabel.endsWith(` · ${currency}`) ? accountLabel.slice(0, -` · ${currency}`.length) : accountLabel;
+    if (sourceAccountType && accountName !== sourceAccountType) throw new Error('Selected U2U account differs from its summary.');
     const preview = {
       sourceAsset: assetText,
       sourceBalanceBefore: formatU2uBalance(balance.replace(/,/g, '')),
       transferAmount: await readField('转账金额'),
-      sourceAccountType: await readField('转出账户'),
+      sourceAccountType: accountName,
       fee: await readField('手续费（从金额内扣）'),
       expectedReceivedAmount: await readField('预计到账'),
       submitEnabled: await this.submitButton.isEnabled()

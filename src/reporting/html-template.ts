@@ -7,6 +7,7 @@ import type {
   BusinessStepRecord
 } from './business-report.types';
 import { formatDuration } from './business-report.utils';
+import { renderBusinessOverview, businessOverviewStyles } from './business-overview';
 
 function escapeHtml(value: unknown): string {
   return String(value ?? '')
@@ -103,6 +104,15 @@ const businessDataLabels: Record<string, string> = {
   transferCurrency: '互转币种',
   supportedCurrencies: '页面支持币种',
   transferAmount: '转账金额',
+  transferFeeType: '互转手续费类型',
+  originalTransferFee: '原互转手续费参数',
+  configuredTransferFee: '本次测试互转手续费参数',
+  configurationSaveClicks: '测试费用保存次数',
+  configurationRestoreClicks: '原费用恢复次数',
+  configurationRestored: '原手续费配置已恢复',
+  accountTransferFeeEvidence: '手续费模式与订单金额核对证据',
+  rawApiActualAmount: '接口原始actualAmount（不作到账Oracle）',
+  receivedAmountSource: '实际到账金额读取来源',
   transferSourceBalanceBefore: '互转前转出余额',
   transferSourceBalanceAfter: '互转后转出余额',
   transferTargetBalanceBefore: '互转前转入余额',
@@ -641,14 +651,16 @@ export function renderBusinessReport(report: BusinessReportRun): string {
 
   return `<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${escapeHtml(report.title)}</title>
+<title>Fidere 自动化测试报告</title>
 <style>
 :root{color-scheme:light;--bg:#f5f6f7;--surface:#fff;--text:#202124;--muted:#667085;--line:#d9dee5;--green:#16794b;--red:#b42318;--orange:#b54708;--yellow:#8a6100;--gray:#59636e;--blue:#175cd3}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:Arial,"Microsoft YaHei",sans-serif;font-size:14px;line-height:1.55;letter-spacing:0}.shell{max-width:1600px;margin:0 auto;padding:24px}header{margin-bottom:20px}h1{font-size:28px;margin:0 0 14px}h2{font-size:20px;margin:28px 0 12px}h3{font-size:16px;margin:0 0 12px}h4{font-size:14px;margin:14px 0 8px}.run-meta,.data-grid,.baseline-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:6px;overflow:hidden}.run-meta div,.data-grid div,.baseline-grid div{background:var(--surface);padding:10px 12px;min-width:0}.run-meta strong,.data-grid dt,.baseline-grid strong{display:block;color:var(--muted);font-size:12px;margin-bottom:3px}.baseline-grid span{display:block;font-size:20px;font-weight:700}.baseline-grid small{display:block;margin-top:5px}.baseline-banner{padding:11px 13px;border-radius:5px;margin-bottom:10px;font-weight:700}.baseline-banner.stable{color:var(--green);background:#e8f5ee}.baseline-banner.regression{color:var(--red);background:#fdecea}.baseline-banner.neutral{color:var(--blue);background:#eef4ff}.data-grid dd{margin:0;overflow-wrap:anywhere}.summary{display:grid;grid-template-columns:repeat(9,minmax(110px,1fr));gap:10px;margin:18px 0}.metric{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:12px}.metric b{display:block;font-size:23px}.metric span{color:var(--muted)}.filters{display:grid;grid-template-columns:2fr repeat(5,1fr);gap:8px;margin:12px 0}.filters input,.filters select{width:100%;height:38px;border:1px solid #b9c0ca;border-radius:5px;background:#fff;padding:0 10px;color:var(--text)}.table-wrap{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:6px}table{width:100%;border-collapse:collapse;table-layout:fixed}th,td{padding:9px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top;overflow-wrap:anywhere}th{background:#eef1f4;color:#394150;font-size:12px}tr:last-child td{border-bottom:0}.status{display:inline-block;padding:2px 7px;border-radius:4px;font-weight:700;white-space:nowrap}.status.passed{color:var(--green);background:#e8f5ee}.status.passedWithWarning,.status.warning{color:var(--yellow);background:#fff8d8}.status.failed,.status.timedOut{color:var(--red);background:#fdecea}.status.skipped,.status.interrupted{color:var(--gray);background:#eceff2}.status.blocked{color:var(--orange);background:#fff1e7}.status.manualReview{color:var(--yellow);background:#fff8d8}.link-button{border:0;background:transparent;color:var(--blue);padding:0;cursor:pointer;text-decoration:underline;font:inherit}.case-detail{margin-top:12px;background:var(--surface);border:1px solid var(--line);border-radius:6px}.case-detail>summary{cursor:pointer;padding:13px 15px;font-weight:700}.case-detail section{padding:15px;border-top:1px solid var(--line)}.failure{border-left:4px solid var(--red)}.failure.warning-panel{border-left-color:var(--yellow)}.failure.quiet{border-left-color:var(--line)}.oracle-table{table-layout:auto}.warnings{margin:8px 0;padding-left:22px;color:var(--yellow)}.technical{margin-top:12px}.technical pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f7f8fa;border:1px solid var(--line);padding:10px}.evidence small{display:block;color:var(--orange);margin-top:3px}.muted,.empty,small{color:var(--muted)}a{color:var(--blue)}
 @media(max-width:1100px){.run-meta,.data-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.summary{grid-template-columns:repeat(4,1fr)}.filters{grid-template-columns:repeat(3,1fr)}}
 @media(max-width:700px){.shell{padding:12px}.run-meta,.data-grid,.summary,.filters{grid-template-columns:1fr}table{min-width:980px}}
 @media print{body{background:#fff}.shell{max-width:none;padding:0}.filters,.link-button{display:none}.case-detail{break-inside:avoid}.case-detail[open] summary{display:block}}
-</style></head><body><main class="shell">
+</style><style>${businessOverviewStyles}</style></head><body><main class="shell">
+${renderBusinessOverview(report)}
+<details id="technical-details"><summary>技术详情</summary>
 <header><h1>${escapeHtml(report.title)}</h1><div class="run-meta">
 <div><strong>执行环境</strong>${escapeHtml(report.environment)}</div><div><strong>Client域名</strong>${escapeHtml(report.hostname)}</div>
 <div><strong>开始时间</strong>${escapeHtml(report.startedAt)}</div><div><strong>结束时间</strong>${escapeHtml(report.endedAt)}</div>
@@ -669,9 +681,13 @@ ${renderBaselineComparison(report)}
 <select id="tag"><option value="">全部标签</option>${options(report.cases.flatMap(item=>item.tags))}</select></div>
 <div class="table-wrap"><table><thead><tr><th>用例编号</th><th>模块</th><th>用例名称</th><th>优先级</th><th>测试类型</th><th>范围</th><th>结果</th><th>失败步骤</th><th>耗时</th><th>改变数据</th><th>人工核查</th></tr></thead><tbody>${rows}</tbody></table></div>
 <div id="details">${report.cases.map(renderCaseDetail).join('')}</div>
+<details class="technical"><summary>完整原始报告数据</summary><pre>${escapeHtml(JSON.stringify(report, null, 2))}</pre></details>
+</details>
 </main><script>
+(() => {
 const controls=['search','module','priority','type','status','tag'].map(id=>document.getElementById(id));
 function applyFilters(){const [search,module,priority,type,status,tag]=controls.map(el=>el.value.toLowerCase());document.querySelectorAll('.case-row').forEach(row=>{const show=(!search||row.dataset.search.includes(search))&&(!module||row.dataset.module.toLowerCase()===module)&&(!priority||row.dataset.priority.toLowerCase()===priority)&&(!type||row.dataset.type.toLowerCase().split('|').includes(type))&&(!status||row.dataset.status.toLowerCase()===status)&&(!tag||row.dataset.tags.toLowerCase().split('|').includes(tag));row.hidden=!show;document.getElementById('case-'+row.dataset.index).hidden=!show;});}
 controls.forEach(el=>el.addEventListener('input',applyFilters));document.querySelectorAll('.link-button').forEach(button=>button.addEventListener('click',()=>{const detail=document.getElementById(button.dataset.target);detail.open=true;detail.scrollIntoView({behavior:'smooth',block:'start'});}));
+})();
 </script></body></html>`;
 }

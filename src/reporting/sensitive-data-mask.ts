@@ -1,6 +1,8 @@
 const blockedFieldPattern = /(?:password|pwd|otp|captcha|securitykey|token|cookie|authorization|secret|privatekey|idnumber|bankaccount|iban|email|phone)/i;
 
 const allowedBusinessFields = new Set([
+  'transferFeeType', 'originalTransferFee', 'configuredTransferFee', 'configurationSaveClicks',
+  'configurationRestoreClicks', 'configurationRestored', 'accountTransferFeeEvidence', 'rawApiActualAmount', 'receivedAmountSource',
   'digitalAddressName', 'digitalAddressAsset', 'digitalAddressNetwork', 'digitalWalletMasked',
   'digitalWhitelistReference', 'digitalAddressCandidateCount', 'digitalAddressAdminBefore',
   'digitalAddressAdminAfter', 'digitalAddressClientStatus', 'digitalAddressSubmissionCount',

@@ -10,21 +10,16 @@ import type { U2uEvidence } from './u2u-evidence';
 export async function readOriginalU2uApproval(list: TransferListPage, baseURL: string, sender: string, transactionId: string) {
   await list.page.goto(new URL('/zh-CN/operation/fiatAssets', baseURL).toString(), { waitUntil: 'domcontentloaded' });
   await list.goto(baseURL);
-  await list.applySupportedFilters({ userKeyword: sender });
-  let record: AdminTransferListRecord | undefined;
-  // A temporarily empty list is a loading observation, not a terminal missing-order exception.
-  await expect.poll(async () => {
-    const records = (await list.readAllFilteredRecords()).filter(row => row.adminTransactionId === transactionId);
-    if (records.length > 1) throw new Error('Original U2U TXN has multiple records.');
-    record = records.length === 1 ? records[0] : undefined;
-    return record?.status ?? 'LOADING';
-  }, { timeout: 45_000, message: 'Read original Admin approval result without another action' }).toBe('已批准');
-  return record!;
+  // The pre-approval fingerprint already established uniqueness. Query that exact
+  // TXN now; restarting a debounced customer search can race pagination refresh.
+  const record = await list.waitForRecordStatus(transactionId, /^已批准$/);
+  expect(matchesAdminCustomerIdentity(record.userIdentity, sender), 'Original approved Sender unchanged').toBe(true);
+  return record;
 }
 
 export async function openOriginalU2uReview(input: {
   page: Page; baseURL: string; sender: string; recipient: string;
-  evidence: U2uEvidence; business: BusinessReportApi;
+  evidence: Pick<U2uEvidence, 'senderLedgerId' | 'submittedAt' | 'sourceAccountType' | 'targetAccountType' | 'currency' | 'amount' | 'fee' | 'expectedCredit'>; business: BusinessReportApi;
 }) {
   const { page, baseURL, sender, recipient, evidence, business } = input;
   if (!evidence.senderLedgerId || !evidence.submittedAt) throw new Error('Original Client TXN and submission time are required.');
@@ -53,7 +48,7 @@ export async function openOriginalU2uReview(input: {
     if (records.length > 1) throw new Error('U2U Admin candidateCount>1; approval is forbidden.');
     unique = records.length === 1 ? records[0] : undefined;
     return records.length;
-  }, { timeout: 25_000, message: 'Original U2U Admin candidateCount=1' }).toBe(1);
+  }, { timeout: 90_000, message: 'Original U2U Admin candidateCount=1 (complete paginated collection)' }).toBe(1);
   const detailPage = new TransferDetailPage(page);
   await detailPage.openFromList(list, unique!.adminTransactionId);
   const detail = await detailPage.readDetail();
