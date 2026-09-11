@@ -215,7 +215,7 @@ Client 前置状态
   需要关闭/重置测试账户的后台接口；已开通账户不可用删除历史替代恢复
 ```
 
-**地区依赖**：美国 `interlace` + FATCA已真实完成；新加坡为 `sg_bank`；巴林第三方终态在OPEN-BH-003首次受控Run中以真实页面状态和Resume确认，不以配置展示名作为成功Oracle。
+**地区依赖**：美国 `interlace` + FATCA已真实完成；新加坡OPEN-SG-002已通过Client申请、Admin审核、开户费扣减和Client已开通的真实状态闭环；巴林OPEN-BH-003同样以真实页面状态确认，不以配置展示名作为成功Oracle。
 
 ## E. 券商开户
 
@@ -474,13 +474,13 @@ Client前置状态
 
 `OPEN-US-001`与Documenso Dry Run已实现并通过。`OPEN-US-002`只允许历史拒绝数据Readonly，不得消耗专用用户执行平台Reject。`OPEN-US-004`仅建立BaaS失败恢复定义，没有可控失败数据时不得执行。
 
-2026-08-31首次OPEN-US-003受控Run通过Preflight并上传五份资料，随后因已有`0 Fields Remaining`草稿不再显示`Next Field`而在Complete前停止。人工确认Full Name应保留文档预填值后，正式Resume通过前置检查并单击Complete 1次，真实确认框正常打开；因文档名解析错误在确认Sign前停止，故`Sign=0`、Client提交`=0`、Admin批准`=0`，未创建Client申请且不需要人工核查。解析逻辑已按真实DOM修正但没有重跑；当前Resume=`DOCUMENT_READY_TO_COMPLETE`，只能在新的明确授权下继续，禁止Fresh Run。美国开户Reject终态不可重新申请；Singapore首次开户因账号已开通而`BLOCKED_TEST_DATA`，Bahrain当前仍可申请但Approve Happy Path尚未实现。
+地区开户当前由各自业务状态决定：美国开户保留独立Documenso/BaaS恢复规则；OPEN-BH-003与OPEN-SG-002均已真实完成Client单次申请、Admin唯一审批、开户费余额Oracle和Client已开通闭环。已开通用户不得重复申请，后续首次开户测试必须使用新的合格Sandbox用户。
 
 后续单次Resume已成功执行Complete与确认Sign各1次，Documenso正式完成且没有重复签名。开户提交入口出现真实USD 500“确认开通并扣费”弹窗，但该动作不再记为申请提交；确认扣费0次，因此Admin候选0、Admin批准0、BaaS未进入。Fee Resume只读Preflight已确认付款账户`信托账户`、余额`5900 USD`、Admin认证有效和Interlace渠道启用。当前Resume=`CLIENT_FEE_CONFIRMATION_REQUIRED`，后续只能在新的明确资金授权下继续原草稿。
 
 最终唯一Fee Resume随后完成开户费确认1次、安全密钥验证1次，信托账户短时`5900 -> 5400 USD`且实际扣费`500 USD`；Client只创建一条美国开户申请，Admin候选1条、详情匹配、Approve 1次。最终只读复核为Client`已拒绝`、Admin原reviewId`failed`，余额恢复`5900 USD`，没有重复扣费、签名或第二条申请。Resume=`BAAS_FAILED`，OPEN-US-003保持Blocked；历史各次中间态/失败报告保持不变。
 
-巴林开户复用同一Account Opening业务指纹、Admin详情/Approve、余额Oracle、Resume与共享SecurityKeyDialog。2026-08-31只读确认专用用户仍为`可申请`、开户费`USD 100`、无资料上传，Validation和双端Dry Run均通过且写操作为0；OPEN-BH-003为`MUTATION_READY`。真实Run仍必须从费用弹窗读取付款账户与金额，并只在双开关和单次授权下提交。
+巴林开户复用同一Account Opening业务指纹、Admin详情/Approve、余额Oracle、Resume与共享SecurityKeyDialog。2026-09-11 `OPEN-BH-003-AF-20260911`真实通过：Client只创建一条申请，Admin按邮箱、巴林账户、`审核中`状态和时间窗口唯一定位并Approve一次；Client最终`已开通`，香港账户USD余额`200 -> 100`，与页面`100 USD`开户费一致。OPEN-BH-003现为`Ready / Real E2E Verified`，原Run禁止重跑。
 
 ## Wealth Subscribe Readiness
 

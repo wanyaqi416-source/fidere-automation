@@ -57,7 +57,7 @@ Rendered identities and business references are masked. A readiness report alway
 | J-005 TR-003 | Optional | Skip prerequisite while the Fresh User has no broker account |
 | J-006 DP-003 | Optional | Ready; Fresh User input and TXN/balance output are connected |
 | J-007 WD-003 | Optional | Skip not ready until the Fresh Withdrawal adapter exists |
-| J-008 OPEN-BH-003 | Optional | Skip not ready until the Mutation implementation exists |
+| J-008 OPEN-BH-003 | Optional | Flow Ready并已真实验证；Fresh User适配器接入后可按未开户和余额前置条件执行 |
 | J-009 OPEN-US-003 | Optional | Capability Ready; skip not ready until a Fresh User adapter is connected |
 
 ## Execution Disposition

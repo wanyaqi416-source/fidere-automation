@@ -41,16 +41,19 @@ export class RegistrationReviewProcessPage {
     const responsePromise = this.page.waitForResponse(response =>
       new URL(response.url()).origin === url.origin && new URL(response.url()).pathname === expectedPath,
       { timeout: 20_000 }
-    ).then(response => ({ response }), () => ({ response: undefined }));
+    ).then(async response => ({
+      ok: response.ok(),
+      body: await response.text()
+    }), () => ({ ok: false, body: undefined }));
     await this.page.goto(url.toString(), { waitUntil: 'domcontentloaded' });
     await expect(this.page).not.toHaveURL(/\/login|\/signin|\/sign-in/i);
-    const { response } = await responsePromise;
-    if (!response?.ok()) throw new Error('KYC_CASE_STATE_UNAVAILABLE: authenticated business response not received.');
+    const response = await responsePromise;
+    if (!response.ok || !response.body) throw new Error('KYC_CASE_STATE_UNAVAILABLE: authenticated business response not received.');
     const actual = new URL(this.page.url());
     if (actual.pathname !== url.pathname || actual.searchParams.get('reviewId') !== url.searchParams.get('reviewId')) {
       throw new Error('KYC_CASE_CHANGED_DURING_NAVIGATION');
     }
-    return decodeRegistrationKycCase(accountType, await response.json(), `${url.pathname}${url.search}`);
+    return decodeRegistrationKycCase(accountType, JSON.parse(response.body), `${url.pathname}${url.search}`);
   }
 
   async expectCurrentApprovalForm(): Promise<void> {
@@ -64,15 +67,19 @@ export class RegistrationReviewProcessPage {
     const responsePromise = this.page.waitForResponse(response =>
       new URL(response.url()).pathname === '/admin-api/operation/kyc/process',
       { timeout: 20_000 }
-    );
+    ).then(async response => ({
+      ok: response.ok(),
+      status: response.status(),
+      body: await response.text()
+    }));
     await this.page.goto(processUrl, { waitUntil: 'domcontentloaded' });
     await expect(this.page).not.toHaveURL(/\/login|\/signin|\/sign-in/i);
     await expect(this.page.getByRole('heading', { name: '审核决定', exact: true })).toBeVisible({
       timeout: 20_000
     });
     const response = await responsePromise;
-    if (!response.ok()) throw new Error(`KYC process state returned HTTP ${response.status()}.`);
-    const payload = await response.json() as {
+    if (!response.ok) throw new Error(`KYC process state returned HTTP ${response.status}.`);
+    const payload = JSON.parse(response.body) as {
       data?: {
         reviewId?: number | string;
         reviewStep?: string;

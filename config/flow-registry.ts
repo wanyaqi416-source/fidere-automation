@@ -24,7 +24,7 @@ export type {
   TestLevel
 } from '../src/flow-engine/definition';
 
-export type FlowMenuSection = 'Client基础' | '注册' | '兑换' | '资金互转' | '入金' | '出金' | '信托服务' | '运营' | '未实现流程';
+export type FlowMenuSection = 'Client基础' | '注册' | '兑换' | '资金互转' | '入金' | '出金' | '信托服务' | '开户' | '运营' | '未实现流程';
 export type FlowDefinition = BusinessFlowDefinition & { menuSection: FlowMenuSection };
 
 export type ReportAction = {
@@ -1444,28 +1444,43 @@ export const FLOW_REGISTRY: readonly FlowDefinition[] = [
     module: 'Client + Admin新加坡账户开户',
     priority: 'P1',
     scope: 'Client+Admin',
-    type: 'Mutation / External Workflow',
-    status: 'Blocked',
-    implemented: false,
+    type: 'Mutation',
+    status: 'Ready',
+    implemented: true,
     changesData: true,
     affectsMoney: true,
     requiresAdmin: true,
-    requiresThirdParty: true,
-    level: 'L5',
-    npmScript: null,
+    requiresThirdParty: false,
+    level: 'L4',
+    npmScript: 'test:account-opening:sg-approve',
     safetySwitch: 'ALLOW_MONEY_TESTS',
     safetySwitches: ['ALLOW_MONEY_TESTS', 'ALLOW_ADMIN_MUTATION_TESTS'],
     defaultRegression: false,
     moneyRegression: true,
-    realE2EVerified: false,
+    realE2EVerified: true,
+    businessResult: 'Passed',
+    automationResult: 'Passed',
+    requiresSecurityKey: true,
     supportsResume: true,
     clientAction: '提交新加坡账户开户申请',
     adminAction: 'Approve',
-    primaryOracles: ['原申请唯一', 'Fidere审核通过', '第三方成功', 'Client新加坡账户已开户'],
+    primaryOracles: [
+      'Client新加坡账户提交前状态为可申请',
+      '页面开户费、付款账户和扣费前余额可读且安全密钥只验证一次',
+      'Client只创建一条原申请，Admin候选严格唯一且详情匹配',
+      'Fidere Admin只Approve一次并进入审核通过终态',
+      '开户费余额变化符合页面金额',
+      'Client新加坡账户最终已开户'
+    ],
     secondaryOracles: ['通知和预计处理时长'],
-    menuSection: '未实现流程',
+    moneyExecution: {
+      account: '页面开户费弹窗显示的付款账户',
+      currency: 'USD',
+      mutation: '确认新加坡账户开户费并创建唯一申请'
+    },
+    menuSection: '开户',
     menuOrder: 23.7,
-    description: '专用开户用户已经开通新加坡账户，无法再次执行首次开户；状态为BLOCKED_TEST_DATA。'
+    description: '新加坡开户真实页面使用香港法币账户支付页面显示的开户费，经安全密钥后创建申请并由Admin审核。'
   }),
   defineFlow({
     id: 'account-opening-bahrain-validation',
@@ -1523,21 +1538,23 @@ export const FLOW_REGISTRY: readonly FlowDefinition[] = [
     name: '巴林账户开户批准闭环',
     module: 'Client + Admin巴林账户开户',
     priority: 'P1',
-    scope: 'Client+Admin+Third Party',
-    type: 'Mutation / External Workflow',
-    status: 'Mutation Ready',
-    implemented: false,
+    scope: 'Client+Admin',
+    type: 'Mutation',
+    status: 'Ready',
+    implemented: true,
     changesData: true,
     affectsMoney: true,
     requiresAdmin: true,
-    requiresThirdParty: true,
-    level: 'L5',
-    npmScript: null,
+    requiresThirdParty: false,
+    level: 'L4',
+    npmScript: 'test:account-opening:bh-approve',
     safetySwitch: 'ALLOW_MONEY_TESTS',
     safetySwitches: ['ALLOW_MONEY_TESTS', 'ALLOW_ADMIN_MUTATION_TESTS'],
     defaultRegression: false,
     moneyRegression: true,
-    realE2EVerified: false,
+    realE2EVerified: true,
+    businessResult: 'Passed',
+    automationResult: 'Passed',
     requiresSecurityKey: true,
     supportsResume: true,
     clientAction: '提交巴林账户开户申请',
@@ -1546,7 +1563,7 @@ export const FLOW_REGISTRY: readonly FlowDefinition[] = [
       'Client巴林账户提交前状态为可申请',
       '页面开户费、付款账户和扣费前余额可读且安全密钥只验证一次',
       'Client只创建一条原申请，Admin候选严格唯一且详情匹配',
-      'Fidere Admin只Approve一次并进入第三方终态',
+      'Fidere Admin只Approve一次并进入审核通过终态',
       '开户费余额变化符合页面金额',
       'Client巴林账户最终已开户'
     ],
@@ -1556,9 +1573,9 @@ export const FLOW_REGISTRY: readonly FlowDefinition[] = [
       currency: 'USD',
       mutation: '确认巴林账户开户费并创建唯一申请'
     },
-    menuSection: '未实现流程',
+    menuSection: '开户',
     menuOrder: 24,
-    description: '2026-08-31只读复核确认专用用户仍可申请、页面开户费USD 100且无资料上传；Validation与双端Dry Run通过。复用Account Opening候选、Approve、Resume、余额和共享SecurityKeyDialog能力，等待一次显式授权实现并执行真实Happy Path。'
+    description: 'Client读取真实开户费与付款账户，单次安全验证创建申请；Admin按邮箱、账户类型、状态和时间唯一审核；最终验证Client已开通及开户费扣减。'
   }),
   defineFlow({
     id: 'admin-manual-fiat-deposit',

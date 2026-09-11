@@ -6,6 +6,16 @@ import type { FlowDefinition } from '../config/flow-registry.js';
 
 export const businessReportPath = resolve('reports/business/latest.html');
 
+export type NpmScriptResult = {
+  exitCode: number;
+  output: string;
+};
+
+export type NpmScriptOptions = {
+  environment?: Readonly<Record<string, string>>;
+  quiet?: boolean;
+};
+
 export function openLocalUrl(url: string): void {
   const command = process.platform === 'win32'
     ? { executable: 'cmd.exe', args: ['/c', 'start', '', url] }
@@ -25,21 +35,41 @@ export function openLocalUrl(url: string): void {
   }
 }
 
-export async function runNpmScript(npmScript: string): Promise<number> {
+export async function runNpmScriptWithResult(
+  npmScript: string,
+  options: NpmScriptOptions = {}
+): Promise<NpmScriptResult> {
   const npmExecPath = process.env.npm_execpath;
   if (!npmExecPath) {
     throw new Error('该命令必须通过 npm run 启动。');
   }
 
-  return new Promise(resolveExitCode => {
+  return new Promise(resolveResult => {
+    let captured = '';
     const child = spawn(process.execPath, [npmExecPath, 'run', npmScript], {
       cwd: process.cwd(),
-      stdio: 'inherit',
+      env: { ...process.env, ...options.environment },
+      stdio: options.quiet ? ['inherit', 'pipe', 'pipe'] : 'inherit',
       windowsHide: true
     });
-    child.once('error', () => resolveExitCode(1));
-    child.once('exit', code => resolveExitCode(code ?? 1));
+    if (options.quiet) {
+      const capture = (chunk: Buffer) => {
+        captured += chunk.toString();
+        if (captured.length > 250_000) captured = captured.slice(-250_000);
+      };
+      child.stdout?.on('data', capture);
+      child.stderr?.on('data', capture);
+    }
+    child.once('error', error => resolveResult({ exitCode: 1, output: `${captured}\n${error.message}` }));
+    child.once('exit', code => resolveResult({ exitCode: code ?? 1, output: captured }));
   });
+}
+
+export async function runNpmScript(
+  npmScript: string,
+  options: NpmScriptOptions = {}
+): Promise<number> {
+  return (await runNpmScriptWithResult(npmScript, options)).exitCode;
 }
 
 export function printMoneyFlowPreview(flow: FlowDefinition): void {

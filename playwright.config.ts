@@ -106,6 +106,8 @@ export default defineConfig({
       testIgnore: [
         'e2e/account-opening/us-account-opening.dry-run.spec.ts',
         'e2e/account-opening/bahrain-account-opening.dry-run.spec.ts',
+        'e2e/account-opening/bahrain-account-opening.spec.ts',
+        'e2e/account-opening/singapore-account-opening.spec.ts',
         'e2e/account-opening/us-account-opening.preflight.spec.ts',
         'e2e/account-opening/us-account-opening-resume.preflight.spec.ts',
         'e2e/account-opening/us-account-opening-fee-resume.preflight.spec.ts',
@@ -121,6 +123,8 @@ export default defineConfig({
       testMatch: [
         'e2e/account-opening/us-account-opening.dry-run.spec.ts',
         'e2e/account-opening/bahrain-account-opening.dry-run.spec.ts',
+        'e2e/account-opening/bahrain-account-opening.spec.ts',
+        'e2e/account-opening/singapore-account-opening.spec.ts',
         'e2e/account-opening/us-account-opening.preflight.spec.ts',
         'e2e/account-opening/us-account-opening-resume.preflight.spec.ts',
         'e2e/account-opening/us-account-opening-fee-resume.preflight.spec.ts',

@@ -3,7 +3,11 @@ import { env } from '../../../src/config/env';
 import { MoneyMutationGuard } from '../../../src/flow-engine';
 import { FreshUserBalanceBootstrapStore } from '../../../src/journey/fresh-user-balance-bootstrap';
 import { PersonalPostRegistrationJourneyStore } from '../../../src/journey';
-import { openPersonalJourneyClientSession, maskRegistrationEmail } from '../../../src/registration';
+import {
+  openPersonalJourneyClientSession,
+  maskRegistrationEmail,
+  RegistrationAdminApprovalJourneyStore
+} from '../../../src/registration';
 import { AdminShellPage } from '../../../pages/admin/AdminShellPage';
 import { ManualFiatDepositPage } from '../../../pages/admin/ManualFiatDepositPage';
 import { AccountDetailPage } from '../../../pages/client/AccountDetailPage';
@@ -24,8 +28,23 @@ test('ADMIN-MD-001 原Journey香港USD手动入金一次 @money @mutation @L4', 
   const switches = { ALLOW_MONEY_TESTS: env.exchange.allowMoneyTests, ALLOW_ADMIN_MUTATION_TESTS: env.allowAdminMutationTests };
   for (const baseURL of [env.client.baseUrl, env.admin.baseUrl]) guard.validateRuntime({ baseURL, workers: testInfo.config.workers, retries: testInfo.project.retries, repeatEach: testInfo.project.repeatEach, safetySwitches: switches });
   expect(testInfo.retry + testInfo.repeatEachIndex).toBe(0);
-  const source = new PersonalPostRegistrationJourneyStore(sourceRunId).load();
-  if (!source || source.stage !== 'COMPLETED') throw new Error('Existing completed Journey required; creating users/deposits in Client is forbidden.');
+  const postRegistrationSource = new PersonalPostRegistrationJourneyStore(sourceRunId).load();
+  const registrationApprovalSource = new RegistrationAdminApprovalJourneyStore('personal', sourceRunId).load();
+  const source = postRegistrationSource?.stage === 'COMPLETED'
+    ? postRegistrationSource
+    : registrationApprovalSource?.stage === 'COMPLETED'
+      ? registrationApprovalSource
+      : undefined;
+  if (!source) throw new Error('Existing completed and Admin-approved Personal Journey required; creating users/deposits in Client is forbidden.');
+  const kycSource = {
+    accountType: 'PERSONAL' as const,
+    runId: sourceRunId,
+    email: source.email,
+    displayName: source.displayName,
+    userId: 'userId' in source ? source.userId : undefined,
+    reviewId: source.reviewId,
+    clientSubmittedAt: 'clientSubmittedAt' in source ? source.clientSubmittedAt : undefined
+  };
   const store = new FreshUserBalanceBootstrapStore();
   let state = store.prepare({ journeyId: runId, userEmail: source.email, bootstrapAmount: amount });
   if (!resumeConfirmation && (state.stage !== 'PREPARED' || state.submissionClicks)) throw new Error('This manual deposit has already been attempted. Read-only reconciliation only, never resubmit.');
@@ -40,7 +59,7 @@ test('ADMIN-MD-001 原Journey香港USD手动入金一次 @money @mutation @L4', 
   const client = await openPersonalJourneyClientSession({ browser, baseURL: env.client.baseUrl!, runId: sourceRunId,
     email: source.email, password: env.client.password!, otp: env.client.otp!, forceFreshLogin: true });
   try {
-    await new RegistrationKycStatusPage(client.page).expectApproved({ ...source, runId: sourceRunId }, env.client.baseUrl!);
+    await new RegistrationKycStatusPage(client.page).expectApproved(kycSource, env.client.baseUrl!);
     guard.markAuthenticationReady(true, true);
     const accounts = new AccountDetailPage(client.page);
     await accounts.goto(env.client.baseUrl!);

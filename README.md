@@ -1,6 +1,77 @@
-# Fidere Automation
+# Fidere 自动化测试
 
-Playwright + TypeScript black-box automation for the deployed Fidere Client and Admin systems. Both systems live in this repository while keeping tests, Page Objects, fixtures, environment configuration, and authentication state separate.
+用于 Fidere 客户端及管理端主要业务流程的自动化回归测试。
+
+## 使用方法
+
+### 1. 启动测试
+
+进入项目目录，双击：
+
+`运行自动化测试.bat`
+
+启动后会显示自动化测试菜单。
+
+### 2. 选择测试流程
+
+根据菜单输入需要执行流程前面的数字，例如：
+
+`6. 用户转账`
+
+输入对应数字后按回车，确认测试信息后输入：
+
+`Y`
+
+即可开始执行。
+
+### 3. 查看测试结果
+
+自动化执行完成后会生成 **Fidere 自动化测试报告**。
+
+可在结束菜单选择：
+
+`1. 打开测试报告`
+
+也可以在主菜单选择：
+
+`99. 查看最近一次测试报告`
+
+报告中会展示：
+
+- 测试场景
+- 测试步骤
+- 预期结果
+- 实际结果
+- 测试结果
+
+## Admin 登录失效
+
+部分流程需要使用管理端。
+
+如果提示：
+
+`ADMIN_AUTH_REQUIRED`
+
+在主菜单选择：
+
+`98. 更新 Admin 登录状态`
+
+手动完成验证码登录后，再重新执行测试即可。
+
+## 当前主要覆盖流程
+
+- 个人 / 企业注册及 KYC 审核
+- 法币入金、出金
+- 用户转账、资金互转、兑换
+- 信托服务
+- 理财产品认购 / 赎回
+- 老虎证券 / 微牛证券开户
+- 巴林、美国、新加坡账户开通
+- 管理端手动入金 / 出金
+
+## 最简单的使用方式
+
+**双击 `运行自动化测试.bat` → 输入流程编号 → 输入 `Y` → 等待执行完成 → 查看测试报告**
 
 ## Setup
 

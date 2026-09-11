@@ -79,9 +79,9 @@
 | OPEN-US-003 US Account Opening Happy Path | P0 | Client+Third Party+Admin | Blocked | No | Failed | Failed | BLOCKED_BAAS_FAILED / No rerun |
 | OPEN-US-004 BaaS Failure Recovery | P0 | Client+Third Party+Admin | Pending | No | Not Run | Not Run | External / Resume only |
 | OPEN-SG-001 Existing Singapore Account Readonly | P1 | Client | Ready | N/A | N/A | Passed | Default / Read-only |
-| OPEN-SG-002 Singapore First Opening | P1 | Client+Admin+Third Party | Blocked | No | Not Run | Not Run | BLOCKED_TEST_DATA |
+| OPEN-SG-002 Singapore First Opening | P1 | Client+Admin | Ready | Yes | Passed | Passed | On demand / Money Mutation |
 | OPEN-BH-001/DRY Bahrain Validation + Dry Run | P1 | Client+Admin | Ready | N/A | N/A | Passed | Default / Read-only |
-| OPEN-BH-003 Bahrain Approve Happy Path | P1 | Client+Admin+Third Party | Mutation Ready | No | Not Run | Not Run | External / On demand |
+| OPEN-BH-003 Bahrain Approve Happy Path | P1 | Client+Admin | Ready | Yes | Passed | Passed | External / On demand |
 | WS-001 Wealth Subscribe Validation | P1 | Client | Ready | N/A | N/A | Passed | Default / Read-only |
 | Wealth Subscribe Dry Run | P1 | Client+Admin | Ready | N/A | Blocked | Passed | Default / Read-only |
 | WS-002 Wealth Subscribe Reject | P1 | Client+Admin | Ready | Yes | Passed | Passed | WS002-20260909-173401真实执行一次：1.60 USD认购后拒绝，资金恢复，无新增有效持仓；Money / Explicit authorization only |
@@ -188,6 +188,8 @@ Admin临时权限已关闭，三个Mutation开关均为false。AH现在不再适
 同日后续唯一Fee Resume完成至第三方处理阶段：五份资料与Documenso Canvas `TEST`签名沿用原草稿，Complete/Sign各1次；页面读取并单次确认`USD 500`开户费，SecurityKey验证1次，信托账户短时`5900 -> 5400 USD`，Client只创建一条美国开户申请，Admin候选严格为1且详情匹配，Fidere Approve只执行1次。最终只读复核却确认Client=`已拒绝`、Admin原reviewId=`failed`，信托余额恢复为`5900 USD`；当前没有第二条申请或重复扣费。Resume=`BAAS_FAILED`，OPEN-US-003不能标记Ready，历史各次报告继续原样保留。
 
 2026-08-31 Readiness刷新：Bahrain Validation与双端Dry Run再次通过，专用用户仍为`可申请`，页面开户费`USD 100`、上传控件0、Client/Admin最终动作0，因此OPEN-BH-003进入`Mutation Ready`。Wealth Subscribe读取9条Client `INV-*`，修复状态Tab切换后的Locator恢复后，已在Admin取得1条同编号唯一候选并打开详情；该历史订单为终态，Approve/Reject入口均不可用，基金页持仓行与赎回动作仍为0，所以WS-002/003仍未达到Mutation Ready，WR继续`BLOCKED_TEST_DATA`。
+
+2026-09-11 `OPEN-BH-003-AF-20260911`真实闭环通过：`TEST SANDBOX AF`从Client提交唯一巴林账户申请，页面开户费为`100 USD`、付款账户为香港法币账户；共享SecurityKey验证一次后生成原申请`103`。Admin按邮箱、账户类型、`审核中`状态和时间窗口唯一定位，candidateCount=`1`，详情核对后Approve一次。最终Admin=`审核通过`、Client=`已开通`，香港账户USD余额`200 -> 100`，实际扣费与页面金额一致；未创建第二条申请。OPEN-BH-003更新为`Ready / Real E2E Verified`。
 
 ## Baseline V1 Verification
 

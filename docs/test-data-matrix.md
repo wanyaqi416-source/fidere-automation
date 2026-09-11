@@ -118,8 +118,8 @@
 | Resume数据 | `.flow-state/account-opening-us-approve/`只保存runId、阶段、时间和取得后的真实reviewId；不保存身份资料、签名、Cookie或Token |
 | 当前真实Run | `OPENUS003-****0819`已`BAAS_FAILED`：Documenso Complete/Sign各1次、USD 500费用确认1次、SecurityKey验证1次、Client申请1条、Admin候选1条且Approve 1次；最终Client`已拒绝`、Admin`failed`，信托余额恢复`5900 USD` |
 | 当前状态 | OPEN-US-003=`BLOCKED_BAAS_FAILED`且首次开户不可重跑；OPEN-US-004需定义真实恢复规则后才能执行 |
-| Singapore | 当前专用用户已开通，只读可验证；首次开户为`BLOCKED_TEST_DATA` |
-| Bahrain | 2026-08-31再次确认专用用户仍可申请，开户费`USD 100`、无资料上传，Validation和双端Dry Run通过；OPEN-BH-003=`MUTATION_READY` |
+| Singapore | OPEN-SG-002已用TEST SANDBOX AF真实验证首次开户；该用户现已开通，后续不得重复开户 |
+| Bahrain | 2026-09-11 `OPEN-BH-003-AF-20260911`真实通过：Client唯一申请、Admin candidateCount=`1`且Approve一次，最终Client=`已开通`；香港账户USD `200 -> 100`，OPEN-BH-003=`READY` |
 
 ## Wealth Subscribe Readiness
 

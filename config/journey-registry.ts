@@ -164,7 +164,7 @@ export const FRESH_USER_JOURNEY_STEPS: readonly JourneyStepDefinition[] = [
     requiredContextInputs: ['user.email', 'account.hongKongUsdBalance'],
     contextOutputs: ['references.bahrainOpeningReference', 'account.hongKongUsdBalance'],
     blockedImpact: '仅阻塞巴林开户；用户已开户时应改为SKIPPED_ALREADY_OPEN。',
-    description: 'OPEN-BH-003只有Validation/Dry Run和Mutation Ready设计，尚无真实执行命令。'
+    description: 'OPEN-BH-003已具备Client开户费确认、安全密钥、Admin唯一审核和Client终态验证的真实执行命令。'
   },
   {
     id: 'J-009',
