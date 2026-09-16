@@ -45,6 +45,8 @@ export type PersonalJourneyContext = {
   clientStatus?: string;
   authorizationDocumentRecoveryCount?: number;
   signingSyncStatus?: 'PENDING' | 'FAILED' | 'RECOGNIZED';
+  profileSubmitNoRequestAttemptedAt?: string;
+  profileSubmitRecoveryAttemptedAt?: string;
   lifecycle?: PersonalJourneyLifecycle;
   abandonedReason?: string;
   stage: PersonalRegistrationStage;
@@ -219,7 +221,10 @@ export class PersonalJourneyContextStore {
   advance(
     current: PersonalJourneyContext,
     stage: PersonalRegistrationStage,
-    updates: Pick<PersonalJourneyContext, 'userId' | 'registrationTime' | 'clientStatus' | 'clientSubmittedAt'> = {},
+    updates: Pick<
+      PersonalJourneyContext,
+      'userId' | 'registrationTime' | 'clientStatus' | 'clientSubmittedAt' | 'signingSyncStatus'
+    > = {},
     now = new Date()
   ): PersonalJourneyContext {
     if (stageIndex(stage) <= stageIndex(current.stage)) {

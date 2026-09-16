@@ -1,10 +1,24 @@
-import { expect, type Frame, type Locator, type Page } from '@playwright/test';
+import { resolve } from 'node:path';
+
+import { expect, type Frame, type Locator, type Page, type Response } from '@playwright/test';
 
 import { assertClientTestEnvironment } from '../../../src/utils/clientSafety';
 
 type SignaturePoint = readonly [number, number];
 
-const TEST_SIGNATURE_STROKES: readonly (readonly SignaturePoint[])[] = [
+const PERSONAL_TEST_SIGNATURE_STROKES: readonly (readonly SignaturePoint[])[] = [
+  [[0.03, 0.06], [0.23, 0.06]],
+  [[0.13, 0.06], [0.13, 0.94]],
+  [[0.29, 0.06], [0.29, 0.94]],
+  [[0.29, 0.06], [0.47, 0.06]],
+  [[0.29, 0.50], [0.44, 0.50]],
+  [[0.29, 0.94], [0.47, 0.94]],
+  [[0.72, 0.12], [0.66, 0.04], [0.56, 0.08], [0.53, 0.30], [0.58, 0.47], [0.68, 0.55], [0.72, 0.76], [0.67, 0.94], [0.56, 0.96], [0.50, 0.86]],
+  [[0.77, 0.06], [0.95, 0.06]],
+  [[0.86, 0.06], [0.86, 0.94]]
+];
+
+const LEGACY_TEST_SIGNATURE_STROKES: readonly (readonly SignaturePoint[])[] = [
   [[0.06, 0.25], [0.20, 0.25]],
   [[0.13, 0.25], [0.13, 0.78]],
   [[0.28, 0.25], [0.28, 0.78]],
@@ -15,6 +29,10 @@ const TEST_SIGNATURE_STROKES: readonly (readonly SignaturePoint[])[] = [
   [[0.69, 0.25], [0.86, 0.25]],
   [[0.775, 0.25], [0.775, 0.78]]
 ];
+
+export type RegistrationAgreementSignerOptions = {
+  personalRegistrationEnhancements?: boolean;
+};
 
 export type RegistrationAgreementInspection = {
   implementation: 'RegistrationAgreementSigner';
@@ -37,7 +55,7 @@ export type CompletedRegistrationAgreementInspection = {
 };
 
 export type RegistrationAgreementSigningResult = {
-  signatureMethod: 'Canvas Draw' | 'Typed Signature';
+  signatureMethod: 'Canvas Draw' | 'Image Upload' | 'Typed Signature';
   signatureFieldLocated: true;
   testSignatureDrawn: boolean;
   signatureDrawnThisRun: boolean;
@@ -80,8 +98,19 @@ export class RegistrationAgreementSigner {
   private fieldSignClicks = 0;
   private agreementActionClicks = 0;
   private agreementConfirmationClicks = 0;
+  private completionConfirmed = false;
+  private lastKnownRemainingFields?: number;
 
-  constructor(readonly page: Page) {}
+  constructor(
+    readonly page: Page,
+    private readonly options: RegistrationAgreementSignerOptions = {
+      personalRegistrationEnhancements: true
+    }
+  ) {}
+
+  private personalRegistrationEnhancementsEnabled(): boolean {
+    return this.options.personalRegistrationEnhancements !== false;
+  }
 
   async open(
     expectedTestName: string,
@@ -92,7 +121,9 @@ export class RegistrationAgreementSigner {
       this.page.getByRole('heading', {
         name: options.outerHeading ?? /^(?:授权|Authorization)$/i
       }).last()
-    ).toBeVisible({ timeout: 30_000 });
+    ).toBeVisible({
+      timeout: this.personalRegistrationEnhancementsEnabled() ? 60_000 : 30_000
+    });
 
     for (let attachAttempt = 0; attachAttempt < 2; attachAttempt += 1) {
       const candidates = await this.waitForAgreementFrames();
@@ -160,8 +191,10 @@ export class RegistrationAgreementSigner {
       }
       return candidates.length;
     }, {
-      timeout: 30_000,
-      intervals: [300, 500, 750, 1_000],
+      timeout: this.personalRegistrationEnhancementsEnabled() ? 120_000 : 30_000,
+      intervals: this.personalRegistrationEnhancementsEnabled()
+        ? [300, 500, 750, 1_000, 2_000, 5_000]
+        : [300, 500, 750, 1_000],
       message: 'Registration Agreement did not expose one embedded signing or completed frame.'
     }).toBe(1);
     return candidates;
@@ -212,14 +245,23 @@ export class RegistrationAgreementSigner {
       remainingFields = 0;
       return true;
     }, {
-      timeout: 30_000,
-      intervals: [250, 500, 1_000],
+      timeout: this.personalRegistrationEnhancementsEnabled() ? 90_000 : 30_000,
+      intervals: this.personalRegistrationEnhancementsEnabled()
+        ? [250, 500, 1_000, 2_000, 5_000]
+        : [250, 500, 1_000],
       message: 'Registration Agreement did not finish loading its remaining-fields state.'
     }).toBe(true);
     return remainingFields!;
   }
 
   async inspectCompletedAgreement(): Promise<CompletedRegistrationAgreementInspection> {
+    if (
+      this.personalRegistrationEnhancementsEnabled() &&
+      this.completionConfirmed &&
+      this.lastKnownRemainingFields === 0
+    ) {
+      return { completed: true, remainingFields: 0 };
+    }
     this.requireFrame();
     const providerOrigin = this.providerOrigin;
     if (!providerOrigin) throw new Error('Registration Agreement provider has not been identified.');
@@ -301,11 +343,17 @@ export class RegistrationAgreementSigner {
     this.signatureEditor = editor;
   }
 
-  async drawTestSignature(signatureText: string): Promise<'Canvas Draw' | 'Typed Signature'> {
+  async drawTestSignature(
+    signatureText: string
+  ): Promise<'Canvas Draw' | 'Image Upload' | 'Typed Signature'> {
     if (signatureText !== 'TEST') {
       throw new Error('Personal Registration only permits the Sandbox signature TEST.');
     }
     const editor = this.requireSignatureEditor();
+    if (this.personalRegistrationEnhancementsEnabled()) {
+      await this.uploadFixedTestSignature(editor);
+      return 'Image Upload';
+    }
     const drawTab = editor.getByText(/^(?:Draw|绘制|手写)$/i);
     if ((await drawTab.count()) > 0 && await drawTab.first().isVisible()) {
       await drawTab.first().click();
@@ -341,9 +389,45 @@ export class RegistrationAgreementSigner {
         await this.drawFixedTestSignature(canvas);
         this.testSignatureDrawnThisRun = true;
       }
-      const inkPixels = await this.countVisibleInkPixels(canvas);
-      if (inkPixels < 100) {
-        throw new Error('Registration TEST trajectory did not produce visible Canvas ink.');
+      if (!this.personalRegistrationEnhancementsEnabled()) {
+        const inkPixels = await this.countVisibleInkPixels(canvas);
+        if (inkPixels < 100) {
+          throw new Error('Registration TEST trajectory did not produce visible Canvas ink.');
+        }
+        await this.page.screenshot({
+          path: 'test-results/registration-signature-drawn.png',
+          fullPage: false
+        });
+        return 'Canvas Draw';
+      }
+
+      let regionInk = await this.countTestSignatureRegionInk(canvas);
+      if (this.testSignatureDrawnThisRun && regionInk.some(count => count < 10)) {
+        const visibleClearActions: Locator[] = [];
+        for (const action of await editor.getByRole('button', {
+          name: /^(?:Clear|Reset|清除|重置)$/i
+        }).all()) {
+          if (await action.isVisible() && await action.isEnabled()) visibleClearActions.push(action);
+        }
+        if (visibleClearActions.length !== 1) {
+          throw new Error(
+            `Registration TEST trajectory is incomplete and exposes ${visibleClearActions.length} clear actions.`
+          );
+        }
+        await visibleClearActions[0].click();
+        await expect.poll(() => this.countVisibleInkPixels(canvas), {
+          timeout: 10_000,
+          intervals: [100, 200, 400],
+          message: 'Registration signature Canvas did not clear before the bounded redraw.'
+        }).toBeLessThan(10);
+        await this.drawFixedTestSignature(canvas);
+        regionInk = await this.countTestSignatureRegionInk(canvas);
+      }
+      const inkPixels = regionInk.reduce((sum, count) => sum + count, 0);
+      if (inkPixels < 100 || regionInk.some(count => count < 10)) {
+        throw new Error(
+          `Registration TEST trajectory is incomplete; ink by T/E/S/T region=${regionInk.join('/')}.`
+        );
       }
       await this.page.screenshot({
         path: 'test-results/registration-signature-drawn.png',
@@ -409,6 +493,7 @@ export class RegistrationAgreementSigner {
       intervals: [200, 400, 750],
       message: 'Registration Agreement still displays one remaining field.'
     }).toBe(0);
+    this.lastKnownRemainingFields = 0;
     return 0;
   }
 
@@ -447,22 +532,65 @@ export class RegistrationAgreementSigner {
           throw new Error('Registration Agreement confirmation may be clicked only once.');
         }
         this.agreementConfirmationClicks += 1;
-        await sign.click();
-        await expect.poll(async () => {
-          if (frame.isDetached()) return true;
-          try {
-            if (!await confirmation.isVisible()) return true;
-            if (await this.isDocumentCompletedState(frame)) return true;
-            return this.isAuthorizationStepCompleted();
-          } catch (error) {
-            return frame.isDetached() ||
-              (error instanceof Error && /Frame was detached/i.test(error.message));
-          }
-        }, {
-          timeout: 30_000,
-          intervals: [250, 500, 1_000],
-          message: 'Registration Agreement Sign confirmation did not settle to a completed state.'
-        }).toBe(true);
+        if (!this.personalRegistrationEnhancementsEnabled()) {
+          await sign.click();
+          await expect.poll(async () => {
+            if (frame.isDetached()) return true;
+            try {
+              if (!await confirmation.isVisible()) return true;
+              if (await this.isDocumentCompletedState(frame)) return true;
+              return this.isAuthorizationStepCompleted();
+            } catch (error) {
+              return frame.isDetached() ||
+                (error instanceof Error && /Frame was detached/i.test(error.message));
+            }
+          }, {
+            timeout: 30_000,
+            intervals: [250, 500, 1_000],
+            message: 'Registration Agreement Sign confirmation did not settle to a completed state.'
+          }).toBe(true);
+          return;
+        }
+
+        const onResponse = (response: Response): void => {
+          const request = response.request();
+          if (request.method() !== 'POST') return;
+          const url = new URL(response.url());
+          if (url.origin !== this.providerOrigin) return;
+          if (!url.pathname.includes('/api/trpc/recipient.completeDocumentWithToken')) return;
+          this.completionConfirmed = response.status() >= 200 && response.status() < 300;
+        };
+        this.page.on('response', onResponse);
+        try {
+          await sign.click();
+          await expect.poll(async () => {
+            if (this.completionConfirmed) return true;
+            if (await this.isAuthorizationStepCompleted()) {
+              this.completionConfirmed = true;
+              return true;
+            }
+            if (frame.isDetached()) return false;
+            try {
+              if (await this.isDocumentCompletedState(frame)) {
+                this.completionConfirmed = true;
+                return true;
+              }
+              return false;
+            } catch (error) {
+              if (error instanceof Error && /Frame was detached/i.test(error.message)) {
+                return this.completionConfirmed;
+              }
+              throw error;
+            }
+          }, {
+            timeout: 30_000,
+            intervals: [250, 500, 1_000],
+            message:
+              'Registration Agreement Sign confirmation did not produce a completed document or accepted completion request.'
+          }).toBe(true);
+        } finally {
+          this.page.off('response', onResponse);
+        }
       }
     }
   }
@@ -484,6 +612,29 @@ export class RegistrationAgreementSigner {
       timeout,
       intervals: [500, 1_000, 2_000, 3_000, 5_000],
       message: 'Registration Agreement completed, but the Fidere Authorization step did not complete.'
+    }).toBe(true);
+    return true;
+  }
+
+  async waitForCompletedDocumentUi(timeout = 90_000): Promise<true> {
+    const providerOrigin = this.providerOrigin;
+    if (!providerOrigin) throw new Error('Registration Agreement provider has not been identified.');
+    await expect.poll(async () => {
+      for (const frame of this.page.frames()) {
+        if (frame.isDetached()) continue;
+        const frameUrl = frame.url();
+        if (!/^https?:\/\//i.test(frameUrl)) continue;
+        if (new URL(frameUrl).origin !== providerOrigin) continue;
+        if (await this.isDocumentCompletedState(frame)) {
+          this.signerFrame = frame;
+          return true;
+        }
+      }
+      return false;
+    }, {
+      timeout,
+      intervals: [300, 500, 750, 1_000, 2_000, 3_000, 5_000],
+      message: 'Registration Agreement completion page did not become visibly ready.'
     }).toBe(true);
     return true;
   }
@@ -512,7 +663,7 @@ export class RegistrationAgreementSigner {
     return {
       signatureMethod,
       signatureFieldLocated: true,
-      testSignatureDrawn: signatureMethod === 'Canvas Draw',
+      testSignatureDrawn: signatureMethod !== 'Typed Signature',
       signatureDrawnThisRun: this.testSignatureDrawnThisRun,
       testSignatureApplied: true,
       documentAlreadyCompleted: false,
@@ -676,6 +827,27 @@ export class RegistrationAgreementSigner {
     });
   }
 
+  private async countTestSignatureRegionInk(canvas: Locator): Promise<number[]> {
+    return canvas.evaluate(element => {
+      const canvas = element as HTMLCanvasElement;
+      const context = canvas.getContext('2d');
+      if (!context) return [0, 0, 0, 0];
+      const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+      const counts = [0, 0, 0, 0];
+      for (let y = 0; y < canvas.height; y += 1) {
+        for (let x = 0; x < canvas.width; x += 1) {
+          const index = (y * canvas.width + x) * 4;
+          const alpha = pixels[index + 3];
+          const brightness = pixels[index] + pixels[index + 1] + pixels[index + 2];
+          if (alpha === 0 || brightness >= 720) continue;
+          const region = Math.min(3, Math.floor((x / Math.max(1, canvas.width)) * 4));
+          counts[region] += 1;
+        }
+      }
+      return counts;
+    });
+  }
+
   private async clickFieldSignOnce(sign: Locator): Promise<void> {
     await expect(sign).toHaveCount(1);
     await expect(sign).toBeEnabled();
@@ -826,18 +998,71 @@ export class RegistrationAgreementSigner {
     return false;
   }
 
+  private async uploadFixedTestSignature(editor: Locator): Promise<void> {
+    const uploadTabs: Locator[] = [];
+    for (const candidate of await editor.getByText(/^(?:Upload|上传)$/i).all()) {
+      if (await candidate.isVisible()) uploadTabs.push(candidate);
+    }
+    if (uploadTabs.length !== 1) {
+      throw new Error(
+        `Personal Registration signature editor exposes ${uploadTabs.length} visible Upload tabs.`
+      );
+    }
+    await uploadTabs[0].click();
+
+    const input = editor.locator('input[type="file"]');
+    await expect(input).toHaveCount(1);
+    const assetPath = resolve(
+      'test-assets',
+      'personal-registration',
+      'signature_TEST_SANDBOX.png'
+    );
+    await input.setInputFiles(assetPath);
+
+    const next = editor.getByRole('button', {
+      name: /^(?:Next|下一步|Sign|签名|签署)$/i
+    });
+    await expect(next).toHaveCount(1);
+    await expect(next).toBeEnabled({ timeout: 30_000 });
+    this.testSignatureDrawnThisRun = true;
+  }
+
   private async drawFixedTestSignature(canvas: Locator): Promise<void> {
     const box = await canvas.boundingBox();
     if (!box) throw new Error('Registration TEST signature Canvas has no bounding box.');
 
-    for (const stroke of TEST_SIGNATURE_STROKES) {
+    const enhanced = this.personalRegistrationEnhancementsEnabled();
+    const strokes = enhanced
+      ? PERSONAL_TEST_SIGNATURE_STROKES
+      : LEGACY_TEST_SIGNATURE_STROKES;
+    for (const stroke of strokes) {
       const [start, ...points] = stroke;
       await this.page.mouse.move(box.x + start[0] * box.width, box.y + start[1] * box.height);
       await this.page.mouse.down();
-      for (const [x, y] of points) {
-        await this.page.mouse.move(box.x + x * box.width, box.y + y * box.height, { steps: 3 });
+      try {
+        for (const [x, y] of points) {
+          await this.page.mouse.move(box.x + x * box.width, box.y + y * box.height, {
+            steps: enhanced ? 8 : 3
+          });
+          if (enhanced) {
+            await canvas.evaluate(() => new Promise<void>(resolve => {
+              requestAnimationFrame(() => resolve());
+            }));
+          }
+        }
+      } finally {
+        await this.page.mouse.up();
       }
-      await this.page.mouse.up();
+      if (enhanced) {
+        await canvas.evaluate(() => new Promise<void>(resolve => {
+          requestAnimationFrame(() => resolve());
+        }));
+      }
+    }
+    if (enhanced) {
+      await canvas.evaluate(() => new Promise<void>(resolve => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+      }));
     }
   }
 

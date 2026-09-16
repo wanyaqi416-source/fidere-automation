@@ -43,7 +43,11 @@ test('Unique original TXN and candidate precede exactly one reject', ({}, info) 
   const resumed = new DepositRejectionRun('ONE', 'SOURCE', '香港账户', 'USD', '11.32', root);
   expect(() => resumed.attemptReject()).toThrow();
   expect(() => resumed.located('OTHER', 1)).toThrow(/changed/);
-  resumed.adminRejected(); resumed.clientRejected();
+  resumed.adminRejected();
+  resumed.created('TXN-ONE');
+  expect(resumed.state().stage).toBe('ADMIN_ACTION_DONE');
+  expect(resumed.state().clientReference).toBe('TXN-ONE');
+  resumed.clientRejected();
   expect(() => resumed.complete('134.77')).toThrow(/BALANCE_MISMATCH/);
   resumed.complete('123.4500'); expect(resumed.state().stage).toBe('COMPLETED');
   expect(() => resumed.attemptSubmit(baseline)).toThrow();

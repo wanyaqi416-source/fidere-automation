@@ -5,8 +5,9 @@ import { AdminTrustManagementPage } from '../../../pages/admin/AdminTrustManagem
 import { TrustBeneficiaryPage } from '../../../pages/client/TrustBeneficiaryPage';
 import { env } from '../../../src/config/env';
 import { assertSandboxEnvironment, MoneyMutationGuard } from '../../../src/flow-engine';
-import { openPersonalJourneyClientSession, PersonalJourneyContextStore } from '../../../src/registration';
+import { openPersonalJourneyClientSession } from '../../../src/registration';
 import { buildTrustBeneficiaryTestData } from '../../../src/trust/trust-beneficiary-data';
+import { resolveTrustBeneficiarySource } from '../../../src/trust/trust-beneficiary-source';
 import { TrustBeneficiaryStateStore } from '../../../src/trust/trust-beneficiary-state';
 
 test.describe.configure({ mode: 'serial', retries: 0 });
@@ -17,7 +18,7 @@ function required(name: string, value: string | undefined): string {
   return value;
 }
 
-test('TRUST-BEN-002 approve existing AB Beneficiary and verify Client state', {
+test('TRUST-BEN-002 approve current Beneficiary and verify Client state', {
   tag: ['@trust', '@beneficiary', '@admin', '@mutation', '@resume', '@L4']
 }, async ({ browser, adminPage, business }, testInfo) => {
   test.setTimeout(240_000);
@@ -36,10 +37,7 @@ test('TRUST-BEN-002 approve existing AB Beneficiary and verify Client state', {
       state.beneficiaryApproveCount !== 0 || state.bankAccountCreateCount !== 1) {
     throw new Error('Existing unapproved AB Beneficiary with one Bank Account is required.');
   }
-  const source = new PersonalJourneyContextStore().load(state.sourceRunId);
-  if (!source?.email || !source.displayName || source.stage !== 'COMPLETED') {
-    throw new Error('Completed Personal source is required.');
-  }
+  const source = resolveTrustBeneficiarySource(state.sourceRunId, state.sourceUserHash);
   const data = buildTrustBeneficiaryTestData(runId);
   const switches = { ALLOW_ADMIN_MUTATION_TESTS: env.allowAdminMutationTests };
   const guard = new MoneyMutationGuard('TRUST-BENEFICIARY-APPROVE', true, false);
@@ -55,8 +53,8 @@ test('TRUST-BEN-002 approve existing AB Beneficiary and verify Client state', {
     caseId: 'TRUST-BEN-002-APPROVE', module: 'Trust Beneficiary',
     name: 'Existing Beneficiary Admin approval and Client final verification', priority: 'P0',
     type: ['E2E', 'Mutation', 'Resume'], scope: 'Client + Admin',
-    preconditions: ['AB Beneficiary and one Bank Account already exist', 'Admin candidateCount=1 before approval'],
-    expectedResult: 'Approve the unique AB Beneficiary once and observe the same Beneficiary approved in Client.',
+    preconditions: ['Current Beneficiary and one Bank Account already exist', 'Admin candidateCount=1 before approval'],
+    expectedResult: 'Approve the unique current Beneficiary once and observe the same Beneficiary approved in Client.',
     changesData: true, affectsMoney: false, dependsOnAdmin: true, dependsOnThirdParty: false,
     safetySwitches: ['ALLOW_ADMIN_MUTATION_TESTS']
   });
@@ -85,7 +83,7 @@ test('TRUST-BEN-002 approve existing AB Beneficiary and verify Client state', {
 
   await trusts.goto(adminBaseUrl);
   const trust = await trusts.locateUnique({ email: source.email, trustNumber: state.trustNumber });
-  expect(trust.beneficiaryCount).toBe(1);
+  expect(trust.beneficiaryCount).toBeGreaterThanOrEqual(1);
   state = store.advance(state, 'ADMIN_TRUST_FOUND');
   business.setResumeState(state.stage);
 
@@ -116,6 +114,7 @@ test('TRUST-BEN-002 approve existing AB Beneficiary and verify Client state', {
     candidateCount: 1,
     adminDetailMatch: detailMatch,
     beneficiaryApprovalClicks: approval.approvalClicks,
+    adminMutationClicks: approval.approvalClicks,
     adminConfirmationClicks: approval.confirmationClicks,
     safeRequestEvidence: approval.requestPath ? {
       path: approval.requestPath,

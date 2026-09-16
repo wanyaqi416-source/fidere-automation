@@ -38,15 +38,15 @@ test(
     business.case({
       caseId: 'TR-003-RECON',
       module: '资金互转',
-      name: '现有80.02 USD待审核记录Admin候选只读复核',
+      name: `现有${expected.requestedAmount} ${expected.currency}记录Admin候选只读复核`,
       description: '逐层验证Admin资金互转列表标准化、候选唯一性和详情字段，不执行审批或拒绝。',
       priority: 'P0',
       type: ['E2E', 'Readonly', 'Reconciliation'],
       scope: 'Admin',
       owner: 'QA',
       requirement: 'TR-003 existing Admin candidate reconciliation',
-      preconditions: ['现有TR-003申请仍为待审核', '两个资金写入开关均为false'],
-      target: '安全定位并打开现有80.02 USD资金互转记录。',
+      preconditions: [`原TR-003申请状态为${expected.status}`, '两个资金写入开关均为false'],
+      target: `安全定位并打开现有${expected.requestedAmount} ${expected.currency}资金互转记录。`,
       expectedResult: '逐层候选最终恰好为1，列表和详情金额、方向、状态一致。',
       changesData: false,
       affectsMoney: false,
@@ -122,7 +122,7 @@ test(
     await business.step(
       {
         action: '2. 打开唯一候选详情并二次核对字段',
-        expected: 'TXN、测试用户、方向、USD、80.02、40.00、40.02和待审核全部一致'
+        expected: `原交易用户、方向、${expected.currency}、金额${expected.requestedAmount}、手续费${expected.feeAmount}、到账${expected.netAmount}及${expected.status}全部一致`
       },
       async ({ setActual, setBusinessData }) => {
         await adminDetail.openFromList(adminList, candidate.adminTransactionId);
@@ -149,7 +149,7 @@ test(
           detailVerified: true,
           approved: false
         });
-        setActual('已打开唯一TXN详情；用户、方向、币种、三项金额和待审核状态全部一致；未点击批准或拒绝');
+        setActual(`已打开唯一交易详情；用户、方向、币种、三项金额和${expected.status}状态全部一致；未点击批准或拒绝`);
       }
     );
   }

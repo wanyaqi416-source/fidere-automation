@@ -286,7 +286,9 @@ export class TransferListPage {
     row: Locator,
     headers: readonly string[]
   ): Promise<AdminTransferListRecord> {
-    const cells = row.getByRole('cell');
+    // Read a row in one browser round trip so pagination does not spend the
+    // entire case timeout fetching each individual cell over the driver.
+    const cells = await row.getByRole('cell').allInnerTexts();
     const read = async (aliases: readonly string[], required = true): Promise<string> => {
       const normalizedHeaders = headers.map(header => header.trim().replace(/\s+/g, ''));
       const normalizedAliases = aliases.map(alias => alias.trim().replace(/\s+/g, ''));
@@ -310,7 +312,8 @@ export class TransferListPage {
         }
         throw new Error(`Admin Transfer list is missing column: ${aliases.join(' / ')}`);
       }
-      return (await cells.nth(index).innerText()).trim();
+      if (index >= cells.length) throw new Error('Admin Transfer row changed while reading its columns.');
+      return cells[index].trim();
     };
 
     const idText = await read(headerAliases.id);
@@ -350,7 +353,7 @@ export class TransferListPage {
       createdAtText,
       status: await read(headerAliases.status),
       displayedAmount,
-      rowText: (await row.innerText()).trim()
+      rowText: cells.join('\n').trim()
     };
   }
 

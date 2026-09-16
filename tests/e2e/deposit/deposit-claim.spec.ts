@@ -1,4 +1,5 @@
 import { DepositClaimDrawer } from '../../../pages/admin/DepositClaimDrawer';
+import { AdminClientUsersPage } from '../../../pages/admin/AdminClientUsersPage';
 import { DepositClaimListPage } from '../../../pages/admin/DepositClaimListPage';
 import { AccountDetailPage } from '../../../pages/client/AccountDetailPage';
 import { DepositPage } from '../../../pages/client/DepositPage';
@@ -12,6 +13,7 @@ import { env } from '../../../src/config/env';
 import { runDepositAuthPreflight } from '../../../src/deposit/deposit-auth-preflight';
 import {
   buildDepositApprovalRemark,
+  depositCustomerIdentityHash,
   DepositExecutionGuard,
   deriveUniqueDepositAmount,
   diagnoseAdminDepositCandidates,
@@ -25,7 +27,8 @@ import {
 } from '../../../src/deposit/deposit-e2e';
 import { assertClientTestEnvironment } from '../../../src/utils/clientSafety';
 import { Decimal } from '../../../src/utils/money';
-import { writeFlowExecutionResult } from '../../../src/flow-engine';
+import { writeFlowExecutionResult, FlowStateStore, createPreparedFlowState, advanceFlowState, type FlowResumeState } from '../../../src/flow-engine';
+import { loadDepositClaimResumeSource } from '../../../src/deposit/deposit-claim-resume-source';
 import {
   getDepositReconciliationConfig,
   getDepositTestConfig
@@ -64,10 +67,16 @@ test(
     expect(testInfo.repeatEachIndex).toBe(0);
 
     const config = getDepositTestConfig();
+    const resume = loadDepositClaimResumeSource();
+    if (resume) {
+      expect(resume.accountType).toBe(config.accountType);
+      expect(resume.currency).toBe(config.currency);
+      expect(resume.channel).toBe(config.channel);
+    }
     const pendingAdminStatus = getDepositReconciliationConfig().adminStatus;
     const runStartedAtMs = Date.now();
-    const runId = `DP003-${new Date(runStartedAtMs).toISOString().replace(/\D/g, '').slice(0, 14)}`;
-    const amount = env.deposit.exactAmount
+    const runId = resume ? `DP003-RESUME-${resume.transactionId}` : `DP003-${new Date(runStartedAtMs).toISOString().replace(/\D/g, '').slice(0, 14)}`;
+    const amount = resume ? new Decimal(resume.amount) : env.deposit.exactAmount
       ? new Decimal(env.deposit.exactAmount)
       : deriveUniqueDepositAmount(runId, config.uniqueAmountBase, config.amountPrecision);
     if (!amount.isFinite() || !amount.isPositive()) {
@@ -82,14 +91,18 @@ test(
     const transactionsPage = new TransactionsPage(clientPage);
     const adminList = new DepositClaimListPage(adminPage);
     const claimDrawer = new DepositClaimDrawer(adminPage);
+    const approvalStore = new FlowStateStore();
+    let approvalState: FlowResumeState | undefined;
     let clientSubmissionClicked = false;
     let adminClaimClicked = false;
 
     business.case({
       caseId: 'DP-003',
       module: 'Client + Admin入金',
-      name: '香港账户USD入金认领成功闭环',
-      description: 'Client单次创建唯一11.xx USD银行电汇入金，Admin唯一定位并认领，Client按原TXN验证成功终态和实际余额增加。',
+      name: resume ? '香港账户USD原入金认领续办' : '香港账户USD入金认领成功闭环',
+      description: resume
+        ? '续办已创建的原入金申请，Client不再提交；Admin按申请类型对应的客户字段与业务信息唯一定位并认领，验证原TXN终态和余额增加。'
+        : 'Client单次创建唯一11.xx USD银行电汇入金，Admin唯一定位并认领，Client按原TXN验证成功终态和实际余额增加。',
       priority: 'P0',
       type: ['E2E', 'Mutation', 'Money'],
       scope: 'Client + Admin',
@@ -121,10 +134,12 @@ test(
       candidateCount: 0,
       confirmationClicks: 0,
       claimConfirmationClicks: 0,
+      noNewDepositCreated: Boolean(resume),
+      resumeStartStage: resume ? 'CLIENT_CREATED' : 'PREPARED',
       confirmed: false
     });
 
-    await business.step(
+    const customerIdentity = await business.step(
       {
         action: '1. 执行Sandbox、双端认证和运行器安全预检',
         expected: 'Client/Admin业务页可访问，两个安全开关开启，单worker、零重试且未重复执行'
@@ -141,9 +156,16 @@ test(
           env.exchange.allowMoneyTests,
           env.allowAdminMutationTests
         );
-        setActual('Sandbox与双端认证有效；两个Mutation开关仅在本进程开启，运行器约束全部满足');
+        if (!env.client.username) throw new Error('Default Client email is required.');
+        const identity = await new AdminClientUsersPage(adminPage)
+          .readDepositCustomerIdentityByEmail(env.admin.baseUrl!, env.client.username);
+        config.adminUserIdentity = depositCustomerIdentityHash(identity.name);
+        setActual(`Sandbox与双端认证有效；根据Admin申请类型，${identity.accountType === 'BUSINESS' ? '企业主体名称对应入金付款人' : '个人名 + 姓对应入金匹配客户'}；运行器约束满足`);
+        return identity;
       }
     );
+    const identityField = customerIdentity.accountType === 'BUSINESS' ? 'payer' : 'matchedCustomer';
+    const identityLabel = identityField === 'payer' ? '企业主体名称与付款人' : '个人名 + 姓与匹配客户';
 
     const balanceBefore = await business.step(
       {
@@ -156,6 +178,7 @@ test(
           accountType: config.accountType,
           currency: config.currency
         });
+        if (resume) expect(balance.availableBalance.equals(resume.balanceBefore), 'Original deposit is still uncredited').toBe(true);
         setBusinessData({ depositBalanceBefore: balance.availableBalance.toString() });
         writeFlowExecutionResult(env.flowResultPath, {
           flowId: 'deposit',
@@ -183,6 +206,10 @@ test(
         expected: '近期Client不存在同币种同金额记录，Admin业务指纹候选数为0；不改金额也不重试'
       },
       async ({ setActual, setBusinessData }) => {
+        if (resume) {
+          setActual('续办已存在的原TXN，不生成新金额或新的Client申请');
+          return;
+        }
         const historicalAmountConflict = previousRecords.some(record =>
           record.currency?.toUpperCase() === config.currency.toUpperCase() &&
           record.requestedAmount !== undefined &&
@@ -195,6 +222,7 @@ test(
         const prospectiveFingerprint: DepositFingerprint = {
           runId,
           userIdentity: config.adminUserIdentity,
+          identityField,
           accountType: config.accountType,
           currency: config.currency,
           requestedAmount: displayedAmount,
@@ -216,9 +244,13 @@ test(
     await business.step(
       {
         action: '4. 填写并核对银行电汇入金申请',
-        expected: '香港账户、USD、配置金额、银行、渠道、用途、资金来源和runId附言完整'
+        expected: '账户、币种、金额、银行、渠道、用途、资金来源、转账方式、支持性文件和附言完整'
       },
-      async ({ setActual }) => {
+      async ({ setActual, setBusinessData }) => {
+        if (resume) {
+          setActual('原申请已经提交，本次不重新填写、不补传或更改原订单资料');
+          return;
+        }
         await depositPage.goto(env.client.baseUrl!);
         await depositPage.selectAccount(config.accountType);
         await depositPage.selectCurrency(config.currencyLabel);
@@ -227,6 +259,9 @@ test(
         await depositPage.selectChannel(config.channel);
         await depositPage.selectPurpose(config.purpose);
         await depositPage.selectSourceOfFunds(config.sourceOfFunds);
+        await depositPage.selectTransferMethod(config.transferMethod);
+        const supportingDocument = await depositPage.uploadSupportingDocument(config.supportingDocumentPath);
+        expect(await depositPage.readSelectedTransferMethod()).toBe(config.transferMethod);
         await depositPage.fillReference(reference);
         const snapshot = await depositPage.readFormSnapshot();
         expect(snapshot.accountType).toContain(config.accountType);
@@ -236,7 +271,8 @@ test(
         expect(snapshot.purpose).toContain(config.purpose);
         expect(snapshot.sourceOfFunds).toContain(config.sourceOfFunds);
         expect(snapshot.submitEnabled).toBe(true);
-        setActual('Client入金表单与本次固定业务数据一致，提交按钮已具备单次执行条件');
+        setBusinessData({ depositTransferMethod: config.transferMethod, supportingDocument });
+        setActual(`Client入金表单完整；转账方式${config.transferMethod}；支持性文件${supportingDocument}已上传，提交按钮可用`);
       }
     );
 
@@ -246,6 +282,10 @@ test(
         expected: '提交按钮仅点击一次，confirm-deposit成功且页面显示申请已提交'
       },
       async context => {
+        if (resume) {
+          context.setActual('保留原Client提交，不点击提交按钮，不创建第二笔入金');
+          return { submittedAtMs: resume.submittedFromMs };
+        }
         guard.assertClientSubmissionAllowed(
           env.exchange.allowMoneyTests,
           env.allowAdminMutationTests
@@ -279,15 +319,19 @@ test(
         await expect.poll(async () => {
           await transactionsPage.goto(env.client.baseUrl!);
           await transactionsPage.selectDepositType();
+          if (resume) await transactionsPage.searchByBusinessId(resume.transactionId);
           diagnostics = await transactionsPage.diagnoseDepositRecords({
             accountType: config.accountType,
             currency: config.currency,
             requestedAmount: displayedAmount,
-            submittedFromMs: submission.submittedAtMs - config.matchWindowMs,
-            submittedToMs: Date.now() + config.matchWindowMs,
+            submittedFromMs: resume?.submittedFromMs ?? submission.submittedAtMs - config.matchWindowMs,
+            submittedToMs: resume?.submittedToMs ?? Date.now() + config.matchWindowMs,
             status: /待处理|处理中|pending|processing/i,
-            excludedLedgerTransactionIds: previousIds
+            excludedLedgerTransactionIds: resume ? undefined : previousIds
           });
+          context.setBusinessData({ candidateStageCounts: {
+            ...diagnostics.counts, status: diagnostics.candidates.length
+          } });
           return diagnostics.candidates.length;
         }, {
           message: 'Client transaction records did not expose exactly one new Deposit record.',
@@ -295,6 +339,7 @@ test(
         }).toBe(1);
         if (!diagnostics) throw new Error('Client Deposit diagnostics were not produced.');
         const record = diagnostics.candidates[0];
+        if (resume) expect(record.ledgerTransactionId).toBe(resume.transactionId);
         const detailDrawer = await transactionsPage.openDepositDetail(record);
         const detail = await detailDrawer.readFiatDepositDetail();
         expect(detail.ledgerTransactionId).toBe(record.ledgerTransactionId);
@@ -303,6 +348,17 @@ test(
         expect(detail.currency).toBe(config.currency);
         expect(new Decimal(detail.amount).equals(amount)).toBe(true);
         guard.recordClientSubmission(detail.ledgerTransactionId);
+        approvalState = approvalStore.load('deposit-claim-approval', detail.ledgerTransactionId);
+        if (approvalState && !['CLIENT_CREATED', 'ADMIN_LOCATED'].includes(approvalState.stage)) {
+          throw new Error('Original Deposit approval was already located/attempted; readonly reconciliation required, never claim twice.');
+        }
+        if (!approvalState) {
+          approvalState = advanceFlowState(createPreparedFlowState({
+            flowId: 'deposit-claim-approval', runId: detail.ledgerTransactionId,
+            amount: displayedAmount, currency: config.currency
+          }), 'CLIENT_CREATED', { clientReference: detail.ledgerTransactionId, clientSubmittedAt: new Date(record.occurredAtMs).toISOString() });
+          approvalStore.save(approvalState);
+        }
         expect(record.status).toMatch(/pending|processing|待处理|处理中/i);
         context.recordPrimaryOracle({
           id: 'DP003-P1',
@@ -339,6 +395,7 @@ test(
     const fingerprint: DepositFingerprint = {
       runId,
       userIdentity: config.adminUserIdentity,
+      identityField,
       accountType: config.accountType,
       currency: config.currency,
       requestedAmount: displayedAmount,
@@ -351,7 +408,7 @@ test(
     await business.step(
       {
         action: '7. Admin按业务指纹唯一定位本次入金',
-        expected: '用户、账户、USD、精确金额、渠道、状态和时间窗口候选数严格等于1'
+        expected: `${identityLabel}一致，账户、USD、精确金额、渠道、状态和时间窗口候选数严格等于1`
       },
       async context => {
         let candidates: AdminDepositCandidate[] = [];
@@ -361,6 +418,10 @@ test(
           await adminList.applyFilters({ status: pendingAdminStatus, matchStatus: '已匹配' });
           records = await adminList.readAllFilteredRecords();
           candidates = matchAdminDepositCandidates(records, fingerprint, config.matchWindowMs);
+          context.setBusinessData({
+            candidateCount: candidates.length,
+            candidateStageCounts: diagnoseAdminDepositCandidates(records, fingerprint, config.matchWindowMs).counts
+          });
           return candidates.length;
         }, {
           message: 'Admin Deposit candidateCount did not become exactly 1.',
@@ -368,6 +429,9 @@ test(
         }).toBe(1);
         const diagnostics = diagnoseAdminDepositCandidates(records, fingerprint, config.matchWindowMs);
         adminCandidate = requireUniqueAdminDepositCandidate(candidates);
+        if (approvalState!.stage === 'ADMIN_LOCATED') expect(approvalState!.adminReference).toBe(adminCandidate.recordKey);
+        else approvalState = advanceFlowState(approvalState!, 'ADMIN_LOCATED', { adminReference: adminCandidate.recordKey });
+        approvalStore.save(approvalState!);
         guard.recordUniqueAdminCandidate(candidates.length);
         context.recordPrimaryOracle({
           id: 'DP003-P2',
@@ -382,7 +446,7 @@ test(
           adminDepositStatus: adminCandidate.status,
           adminReference: adminCandidate.reference,
           fingerprintFields: [
-            '测试用户', '账户类型', '币种', '精确金额', '渠道', '待处理状态', '提交时间窗口'
+            identityLabel, '账户类型', '币种', '精确金额', '渠道', '待处理状态', '提交时间窗口'
           ]
         });
         context.setActual('Admin业务指纹候选数严格等于1，未按第一条或最新一条选择');
@@ -404,7 +468,10 @@ test(
         expect(actualAmount.isFinite() && actualAmount.isPositive()).toBe(true);
         expect(detail.channel).toContain(config.channel);
         expect(detail.reference).toBe(uniqueAdminCandidate.reference);
-        expect(matchesDepositCustomerIdentity(detail.matchedCustomerText, config.adminUserIdentity)).toBe(true);
+        expect(matchesDepositCustomerIdentity(
+          identityField === 'payer' ? detail.payerText : detail.matchedCustomerText,
+          config.adminUserIdentity
+        ), identityLabel).toBe(true);
         expect(detail.submittedAtText).toContain(uniqueAdminCandidate.submittedAtText);
         await claimDrawer.expectRequiredRemark();
         await claimDrawer.fillRemark(claimRemark);
@@ -438,6 +505,8 @@ test(
         );
         context.disallowSafeRerun();
         adminClaimClicked = true;
+        approvalState = advanceFlowState(approvalState!, 'FIDERE_APPROVAL_ATTEMPTED');
+        approvalStore.save(approvalState);
         try {
           await claimDrawer.confirmClaimOnce();
           expect(claimDrawer.confirmationClickCount()).toBe(1);
@@ -477,6 +546,8 @@ test(
           throw error;
         }
         completedAdminRecord = matching[0];
+        approvalState = advanceFlowState(approvalState!, 'ADMIN_ACTION_DONE');
+        approvalStore.save(approvalState);
         context.recordPrimaryOracle({
           id: 'DP003-P4',
           name: 'Admin认领成功并进入成功终态',
@@ -548,10 +619,12 @@ test(
           balanceAfter = balance.availableBalance;
           return balanceAfter.toString();
         }, {
-          message: 'HKD balance did not increase by the actual claimed amount.',
+          message: 'USD balance did not increase by the actual claimed amount.',
           timeout: 60_000
         }).toBe(expectedBalance.toString());
         const actualIncrease = balanceAfter.minus(balanceBefore);
+        approvalState = advanceFlowState(approvalState!, 'COMPLETED');
+        approvalStore.save(approvalState);
         context.recordPrimaryOracle({
           id: 'DP003-P6',
           name: '香港账户USD余额准确增加实际入账金额',
@@ -563,7 +636,8 @@ test(
           depositBalanceAfter: balanceAfter.toString(),
           actualBalanceIncrease: actualIncrease.toString(),
           confirmed: true,
-          finalStatus: completedClientRecord?.status
+          finalStatus: completedClientRecord?.status,
+          resumeEndStage: 'COMPLETED'
         });
         writeFlowExecutionResult(env.flowResultPath, {
           flowId: 'deposit',
@@ -606,9 +680,9 @@ test(
       }
     );
 
-    expect(clientSubmissionClicked).toBe(true);
+    expect(clientSubmissionClicked).toBe(!resume);
     expect(adminClaimClicked).toBe(true);
-    expect(depositPage.submissionClicks()).toBe(1);
+    expect(depositPage.submissionClicks()).toBe(resume ? 0 : 1);
     expect(claimDrawer.confirmationClickCount()).toBe(1);
     expect(completedAdminRecord).toBeTruthy();
     testInfo.annotations.push({

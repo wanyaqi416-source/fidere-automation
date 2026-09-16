@@ -2,7 +2,8 @@ import { test, expect } from '../../fixtures/reporting.fixture';
 import { parseWealthDisplayAmount } from '../../src/wealth/wealth-money';
 import { matchingNewWealthOrders, uniqueSubscriptionAmount, type WealthJourneyEvidence } from '../../src/wealth/wealth-journey';
 import { diagnoseWealthOrderCandidates } from '../../src/wealth/wealth-e2e';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { chooseUniqueRedeemablePosition, redeemedPrincipalDelta, verifyRedemptionSettlement } from '../../src/wealth/wealth-redemption';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { WealthJourneyStore } from '../../src/wealth/wealth-journey';
@@ -10,6 +11,7 @@ import { assertOriginalRejectedSubscription, compareRejectedHolding, rejectionFu
 import { WealthOrderListPage } from '../../pages/admin/WealthOrderListPage';
 import type { WealthPosition } from '../../pages/client/FundTradingPage';
 import { sanitizeBusinessData } from '../../src/reporting/sensitive-data-mask';
+import { launcherWealthSubscriptionRejectionEnvironment } from '../../scripts/launcher-wealth-run';
 
 test('@wealth @validation @L1 USD and USDT remain distinct in full currency parsing', () => {
   expect(parseWealthDisplayAmount('-400.00 USDT')).toMatchObject({ amount: '400', currency: 'USDT' });
@@ -23,6 +25,31 @@ test('@wealth @validation @L1 USD and USDT remain distinct in full currency pars
 test('@wealth @validation @L1 Unique subscription amount is deterministic from named Run', () => {
   expect(uniqueSubscriptionAmount('1', 'WS003-20260908-143500')).toBe('1.43');
   expect(uniqueSubscriptionAmount('1', 'WS003-20260908-143500')).toBe(uniqueSubscriptionAmount('1', 'WS003-20260908-143500'));
+});
+
+test('@wealth @validation @L1 Menu 12 supplies one named rejection authorization and resumes only its unfinished Run', () => {
+  const rootDirectory = mkdtempSync(join(tmpdir(), 'wealth-menu12-unit-'));
+  try {
+    const now = new Date('2026-09-15T08:00:00.000Z');
+    const first = launcherWealthSubscriptionRejectionEnvironment({ CLIENT_USERNAME: 'User@example.test' }, rootDirectory, now);
+    expect(first).toMatchObject({
+      WEALTH_RUN_ID: 'WS002-MENU12-20260915080000',
+      WEALTH_TEST_USERNAME: 'user@example.test',
+      WEALTH_AUTHORIZED_PRODUCT: 'Galaxy Digital Lending',
+      WEALTH_AUTHORIZED_ACTION: 'reject',
+      WEALTH_RESUME: 'false'
+    });
+    expect(first.WEALTH_AUTHORIZED_AMOUNT).toMatch(/^1\.\d{2}$/);
+    const stateDirectory = join(rootDirectory, '.flow-state', 'wealth-subscription');
+    mkdirSync(stateDirectory, { recursive: true });
+    writeFileSync(join(stateDirectory, `${first.WEALTH_RUN_ID}.json`), JSON.stringify({ stage: 'CLIENT_CREATED' }));
+    expect(launcherWealthSubscriptionRejectionEnvironment({ CLIENT_USERNAME: 'user@example.test' }, rootDirectory, now))
+      .toEqual({ ...first, WEALTH_RESUME: 'true' });
+    expect(() => launcherWealthSubscriptionRejectionEnvironment({ CLIENT_USERNAME: 'other@example.test' }, rootDirectory, now))
+      .toThrow('WEALTH_REJECTION_RESUME_REQUIRED');
+  } finally {
+    rmSync(rootDirectory, { recursive: true, force: true });
+  }
 });
 
 test('@wealth @validation @L1 New order matching rejects historical IDs, wrong asset, account, amount and time', () => {
@@ -45,6 +72,46 @@ test('@wealth @validation @L1 Admin fingerprint rechecks identity and cannot tur
   expect(diagnoseWealthOrderCandidates([row], fingerprint).candidates).toHaveLength(1);
   expect(diagnoseWealthOrderCandidates([row, row], fingerprint).candidates).toHaveLength(2);
   expect(diagnoseWealthOrderCandidates([{ ...row, customerText: 'another@example.test' }], fingerprint).candidates).toHaveLength(0);
+  expect(diagnoseWealthOrderCandidates(
+    [{ ...row, customerText: 'TEST SANDBOX ACCOUNT' }],
+    { ...fingerprint, customerMatchMode: 'display-only' }
+  ).candidates).toHaveLength(1);
+  expect(diagnoseWealthOrderCandidates(
+    [{ ...row, customerText: '   ' }],
+    { ...fingerprint, customerMatchMode: 'display-only' }
+  ).candidates).toHaveLength(0);
+});
+
+test('@wealth @validation @L1 Redemption requires one real redeemable holding and never guesses among candidates', () => {
+  const position = { holdingId: 'HOLD-1', productId: '1', productName: 'Sandbox Fund',
+    principal: '12.50', currency: 'USD', status: '可赎回' };
+  expect(chooseUniqueRedeemablePosition([position])).toBe(position);
+  expect(() => chooseUniqueRedeemablePosition([])).toThrow('PRECONDITION_NOT_MET');
+  expect(() => chooseUniqueRedeemablePosition([position, { ...position, holdingId: 'HOLD-2' }]))
+    .toThrow('candidateCount=2');
+});
+
+test('@wealth @validation @L1 Redemption settlement and holding delta use observed values', () => {
+  const snapshot = (available: string) => ({ accountType: '香港账户', currency: 'USD', available,
+    frozen: '0', total: available, observedAt: '2026-09-15T00:00:00.000Z' });
+  expect(verifyRedemptionSettlement(snapshot('10'), snapshot('11.25'), '1.25')).toMatchObject({
+    expectedSettlementAmount: '1.25', actualCredit: '1.25', passed: true
+  });
+  expect(verifyRedemptionSettlement(snapshot('10'), snapshot('11.24'), '1.25').passed).toBe(false);
+  const before = [{ productId: '1', productName: 'Sandbox Fund', principal: '12.50', currency: 'USD', status: '持有中' }];
+  const after = [{ ...before[0], principal: '7.50' }];
+  expect(redeemedPrincipalDelta(before, after, '1', 'USD')).toBe('5');
+  expect(redeemedPrincipalDelta([{ ...before[0], status: '已到期' }], [], '1', 'USD')).toBe('12.5');
+});
+
+test('@wealth @validation @L1 Redemption Admin matching keeps exact INV candidate uniqueness', () => {
+  const row = { orderId: 'INV-REDEEM-001', kind: 'redemption' as const, customerText: 'TEST USER',
+    productName: 'Sandbox Fund', currency: 'USD', amount: '5', status: '待审核', createdAtMs: 1000 };
+  const fingerprint = { ...row, customerIdentity: 'fixture@example.test', customerMatchMode: 'display-only' as const,
+    submittedAtMs: 1000, matchWindowMs: 100 };
+  expect(diagnoseWealthOrderCandidates([row], fingerprint).candidates).toHaveLength(1);
+  expect(diagnoseWealthOrderCandidates([row, row], fingerprint).candidates).toHaveLength(2);
+  expect(diagnoseWealthOrderCandidates([{ ...row, orderId: 'INV-OTHER' }], fingerprint).candidates).toHaveLength(0);
 });
 
 const snapshot = { accountType: '香港账户', currency: 'USD', available: '98.4', frozen: '2.6', total: '101', observedAt: '2026-09-09T01:00:00Z' };

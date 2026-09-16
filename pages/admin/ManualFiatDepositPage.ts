@@ -77,7 +77,9 @@ export class ManualFiatDepositPage {
 
   async fillForm(input: { email: string; displayName: string; amount: string; note: string }): Promise<void> {
     await this.chooseCustomer(input.email);
-    expect(await this.page.getByRole('combobox', { name: '选择客户', exact: true }).inputValue() === `${input.displayName} (${input.email})`).toBe(true);
+    const selectedCustomer = await this.page.getByRole('combobox', { name: '选择客户', exact: true }).inputValue();
+    const selectedEmails = selectedCustomer.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) ?? [];
+    expect(selectedEmails.some(email => email.toLowerCase() === input.email.toLowerCase())).toBe(true);
     await this.selectAccountAndOpenChannels('香港账户');
     await this.page.getByRole('option', { name: 'Others', exact: true }).click();
     await expect(this.page.locator('label').filter({ hasText: /^币种/ }).locator('..').getByRole('combobox')).toHaveText('USD - 美元');
@@ -89,14 +91,14 @@ export class ManualFiatDepositPage {
     }
   }
 
-  async openConfirmation(input: { displayName: string; amount: string; note: string }): Promise<void> {
+  async openConfirmation(input: { email: string; amount: string; note: string }): Promise<void> {
     if (this.confirmationOpenClicks) throw new Error('Confirmation is already opened in this page session.');
     this.confirmationOpenClicks++;
     await this.page.getByRole('button', { name: '确认入金', exact: true }).click();
     const dialog = this.confirmationDialog();
     await expect(dialog).toBeVisible();
     const text = await dialog.innerText();
-    expect(text.includes(input.displayName) && text.includes(input.note)).toBe(true);
+    expect(text.toLowerCase().includes(input.email.toLowerCase()) && text.includes(input.note)).toBe(true);
     const amountText = await dialog.getByRole('heading', { level: 6 }).filter({ hasText: /^USD\s/ }).innerText();
     expect(new Decimal(amountText.replace(/^USD\s*/, '').replaceAll(',', '')).equals(input.amount)).toBe(true);
     await expect(dialog.getByRole('button', { name: '确认入金', exact: true })).toBeEnabled();

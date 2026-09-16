@@ -10,6 +10,12 @@ export type AdminRegistrationCandidate = {
   route: string;
 };
 
+export type AdminDepositCustomerIdentity = {
+  accountType: 'PERSONAL' | 'BUSINESS';
+  userId: string;
+  name: string;
+};
+
 const registrationViews = [
   '/zh-CN/kyc/dashboard',
   '/zh-CN/kyc/processingReviews',
@@ -111,6 +117,49 @@ export class AdminClientUsersPage {
   async exactCandidateCount(identity: string): Promise<number> {
     await this.search(identity);
     return (await this.matchingRows(identity)).length;
+  }
+
+  async readDepositCustomerIdentityByEmail(baseURL: string, email: string): Promise<AdminDepositCustomerIdentity> {
+    await this.goto(baseURL);
+    await this.search(email);
+    const candidates: AdminClientUserSummary[] = [];
+    for (const candidate of await this.matchingRows(email)) {
+      const rowText = await candidate.row.innerText();
+      const emails = rowText.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) ?? [];
+      if (emails.some(value => value.toLowerCase() === email.trim().toLowerCase())) {
+        candidates.push({ row: candidate.row, rowText });
+      }
+    }
+    if (candidates.length !== 1) throw new Error(`Deposit customer email candidateCount=${candidates.length}; expected 1.`);
+    const table = this.page.getByRole('table').filter({ has: candidates[0].row });
+    await expect(table).toHaveCount(1);
+    const headers = (await table.getByRole('columnheader').allInnerTexts()).map(value => value.trim());
+    if (headers.filter(value => value === '申请类型').length !== 1) {
+      throw new Error('Deposit customer list must expose one application-type column.');
+    }
+    const applicationType = (await candidates[0].row.getByRole('cell').nth(headers.indexOf('申请类型')).innerText()).trim();
+    const accountType = applicationType === '个人' ? 'PERSONAL' : applicationType === '企业' ? 'BUSINESS' : undefined;
+    if (!accountType) throw new Error('Deposit customer application type is unknown or ambiguous.');
+    const ids = [...candidates[0].rowText.matchAll(/\bID\s*:\s*(\d+)\b/gi)];
+    if (ids.length !== 1) throw new Error('Deposit customer ID is not uniquely displayed.');
+    const suffix = accountType === 'BUSINESS' ? '/enterprise' : '';
+    const url = new URL(`/zh-CN/kyc/userManagement/${ids[0][1]}${suffix}`, baseURL);
+    await this.page.goto(url.toString(), { waitUntil: 'domcontentloaded' });
+    await expect(this.page).toHaveURL(url.toString());
+    await expect(this.page.getByText(accountType === 'BUSINESS' ? '企业客户' : '个人客户', { exact: true })).toBeVisible();
+    if (accountType === 'PERSONAL') await this.expectDetailMatchesEmail(email);
+    const readName = async (label: string): Promise<string> => {
+      const fieldLabel = accountType === 'BUSINESS'
+        ? this.page.getByText(label, { exact: true })
+        : this.page.getByRole('heading', { name: label, exact: true });
+      const value = fieldLabel.locator('..').locator('..').locator(':scope > p');
+      await expect(value).toHaveCount(1);
+      const text = (await value.innerText()).trim();
+      if (!text || text === '-') throw new Error(`Deposit customer ${label} is empty.`);
+      return text;
+    };
+    const name = accountType === 'BUSINESS' ? await readName('主体名称') : `${await readName('名')} ${await readName('姓')}`;
+    return { accountType, userId: ids[0][1], name };
   }
 
   async openUniqueByEmail(email: string): Promise<Page> {

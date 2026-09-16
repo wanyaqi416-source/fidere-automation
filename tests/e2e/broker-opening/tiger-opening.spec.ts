@@ -7,9 +7,9 @@ import { AccountDetailPage } from '../../../pages/client/AccountDetailPage';
 import { BrokerOpeningPage } from '../../../pages/client/BrokerOpeningPage';
 import { SecuritiesTradingPage } from '../../../pages/client/SecuritiesTradingPage';
 import { RegistrationKycStatusPage } from '../../../pages/client/RegistrationKycStatusPage';
+import { resolveTigerOpeningUser } from '../../../src/broker-opening/tiger-runtime-user';
 import { env } from '../../../src/config/env';
 import { advanceFlowState, createPreparedFlowState, FlowStateStore, MoneyMutationGuard, requireExactlyOneCandidate } from '../../../src/flow-engine';
-import { PersonalPostRegistrationJourneyStore } from '../../../src/journey';
 import { matchTigerOpening } from '../../../src/journey/tiger-opening';
 import { openPersonalJourneyClientSession, maskRegistrationEmail } from '../../../src/registration';
 import { maskSensitiveText } from '../../../src/reporting/sensitive-data-mask';
@@ -21,9 +21,11 @@ test.describe.configure({ mode: 'serial', retries: 0 });
 test('OPEN-TIGER-003 原Journey老虎证券开户与审核 @money @mutation @L4', async ({ browser, adminPage, business }, testInfo) => {
   test.setTimeout(240_000);
   const sourceRunId = process.env.BROKER_SOURCE_RUN_ID;
+  const runtimeEmail = process.env.TIGER_TEST_EMAIL?.trim().toLowerCase();
   const runId = process.env.BROKER_OPENING_RUN_ID;
   const authorizedFee = process.env.BROKER_AUTHORIZED_FEE;
   const resumeAdmin = process.env.BROKER_OPENING_MODE === 'resume-admin';
+  const resumeSecuritySetup = process.env.BROKER_OPENING_MODE === 'resume-security-setup';
   const brokerAccountNumber = process.env.BROKER_OPENING_ACCOUNT_NUMBER;
   const openingDate = process.env.BROKER_OPENING_DATE;
   if (!brokerAccountNumber || !openingDate) throw new Error('BLOCKED_TEST_DATA: Admin final approval requires an explicitly supplied Sandbox broker account number and opening date. No new Client application is permitted without these prerequisites.');
@@ -36,13 +38,23 @@ test('OPEN-TIGER-003 原Journey老虎证券开户与审核 @money @mutation @L4'
   if (resumeAdmin) expect(env.exchange.allowMoneyTests).toBe(false);
   for (const baseURL of [env.client.baseUrl, env.admin.baseUrl]) guard.validateRuntime({ baseURL, workers: testInfo.config.workers, retries: testInfo.project.retries, repeatEach: testInfo.project.repeatEach, safetySwitches: switches });
   expect(testInfo.retry + testInfo.repeatEachIndex).toBe(0);
-  const source = new PersonalPostRegistrationJourneyStore(sourceRunId).load();
-  if (!source || source.stage !== 'COMPLETED') throw new Error('Existing completed Journey required; no registration or funding is permitted.');
+  const shell = new AdminShellPage(adminPage);
+  await shell.goto(env.admin.baseUrl!);
+  await shell.expectSessionActive();
+  const source = await resolveTigerOpeningUser({
+    adminPage,
+    adminBaseUrl: env.admin.baseUrl!,
+    sourceRunId,
+    runtimeEmail
+  });
   const store = new FlowStateStore(resolve('.flow-state', 'broker-journeys', sourceRunId));
   const prior = store.list(flowId);
-  if (!resumeAdmin && prior.some(state => state.stage !== 'PREPARED')) throw new Error('Tiger application was already attempted for this Journey. Resume/read-only only; no new fee or Security Key verification.');
+  if (!resumeAdmin && !resumeSecuritySetup && prior.some(state => state.stage !== 'PREPARED')) throw new Error('Tiger application was already attempted for this Journey. Resume/read-only only; no new fee or Security Key verification.');
   let state = store.load(flowId, runId) ?? createPreparedFlowState({ runId, flowId });
   if (resumeAdmin && (!['ADMIN_LOCATED', 'ADMIN_APPROVAL_CONFIRMATION_REQUIRED'].includes(state.stage) || !state.adminReference || !state.clientSubmittedAt)) throw new Error('Admin Resume requires the original uniquely located application and no previous final approval attempt.');
+  if (resumeSecuritySetup && state.stage !== 'SECURITY_KEY_VERIFICATION_ATTEMPTED') {
+    throw new Error('Security Key setup Resume requires the original pre-submit Tiger state.');
+  }
   store.save(state);
   business.flow(flowId);
   business.setBusinessData({ runId, sourceRunId, registrationTestName: source.displayName, maskedLogin: maskRegistrationEmail(source.email), accountType: '香港账户', currency: 'USD', openingFeeAmount: state.amount });
@@ -50,17 +62,18 @@ test('OPEN-TIGER-003 原Journey老虎证券开户与审核 @money @mutation @L4'
     business.disallowSafeRerun();
     business.recordDiagnostic({ id: 'tiger-existing-application-resume', name: '续跑原老虎申请', status: 'info', summary: '原申请已创建，原安全验证1次；本次只做Admin审核，Client缴费确认和安全验证均0次。', affectsCoreBusiness: false });
   }
-  const shell = new AdminShellPage(adminPage);
-  await shell.goto(env.admin.baseUrl!);
-  await shell.expectSessionActive();
   const admin = new BrokerOpeningReviewPage(adminPage);
   await admin.goto(env.admin.baseUrl!);
   await admin.searchEmail(source.email);
   const existing = matchTigerOpening(await admin.collectRows(), { ...source, reference: resumeAdmin ? state.adminReference : undefined,
     submittedFrom: resumeAdmin ? state.clientSubmittedAt : undefined, submittedTo: resumeAdmin ? state.clientSubmittedAt : undefined });
   expect(existing.candidates).toHaveLength(resumeAdmin ? 1 : 0);
-  const client = await openPersonalJourneyClientSession({ browser, baseURL: env.client.baseUrl!, runId: sourceRunId,
-    email: source.email, password: env.client.password!, otp: env.client.otp!, forceFreshLogin: true });
+  const client = runtimeEmail
+    ? await RegistrationKycStatusPage.cleanLogin({ browser, baseURL: env.client.baseUrl!, email: source.email,
+      password: env.client.password!, otp: env.client.otp! })
+    : await openPersonalJourneyClientSession({ browser, baseURL: env.client.baseUrl!, runId: sourceRunId,
+      email: source.email, password: env.client.password!, otp: env.client.otp!, forceFreshLogin: true });
+  const clientPage = 'statusPage' in client ? client.statusPage.page : client.page;
   const network: Array<{ side: string; path: string; status: number; time: string }> = [];
   const capture = (side: string) => (response: Response) => {
     if (['POST', 'PUT', 'PATCH'].includes(response.request().method())) {
@@ -69,17 +82,17 @@ test('OPEN-TIGER-003 原Journey老虎证券开户与审核 @money @mutation @L4'
   };
   const clientCapture = capture('Client');
   const adminCapture = capture('Admin');
-  client.page.on('response', clientCapture);
+  clientPage.on('response', clientCapture);
   adminPage.on('response', adminCapture);
-  const opening = new BrokerOpeningPage(client.page);
+  const opening = new BrokerOpeningPage(clientPage);
   let finalStatus = '';
   try {
-    await new RegistrationKycStatusPage(client.page).expectApproved({ ...source, runId: sourceRunId }, env.client.baseUrl!);
+    await new RegistrationKycStatusPage(clientPage).expectApproved({ ...source, runId: sourceRunId }, env.client.baseUrl!);
     guard.markAuthenticationReady(true, true);
-    const accounts = new AccountDetailPage(client.page);
+    const accounts = new AccountDetailPage(clientPage);
     await accounts.goto(env.client.baseUrl!);
     const before = await accounts.readSnapshot('香港账户', 'USD');
-    const securities = new SecuritiesTradingPage(client.page);
+    const securities = new SecuritiesTradingPage(clientPage);
     let candidate: BrokerOpeningRow | undefined;
     if (resumeAdmin) {
       candidate = requireExactlyOneCandidate(existing.candidates, 'Original Tiger Resume');
@@ -106,19 +119,32 @@ test('OPEN-TIGER-003 原Journey老虎证券开户与审核 @money @mutation @L4'
     });
     const submittedFrom = new Date().toISOString();
     await business.step({ action: '2. 老虎开户缴费确认和安全密钥各一次', expected: '复用SecurityKeyDialog；不上传资料、不重复扣费。' }, async step => {
-      getClientSecurityKey();
+      const securityKey = getClientSecurityKey();
       guard.assertClientMoneyConfirmationAllowed(switches);
-      state = advanceFlowState(state, 'FEE_CONFIRMATION_ATTEMPTED'); store.save(state);
+      if (!resumeSecuritySetup) {
+        state = advanceFlowState(state, 'FEE_CONFIRMATION_ATTEMPTED'); store.save(state);
+      }
       guard.recordClientMoneyConfirmation();
       await opening.confirmFeeOnce();
-      await opening.securityKey.fill(getClientSecurityKey());
+      const setup = await opening.securityKey.configureIfRequired(securityKey);
+      if (setup.required) {
+        if (setup.dialogClosed) {
+          await opening.confirmFeeAfterSecuritySetupOnce();
+        } else if (!setup.verificationReady) {
+          throw new Error('Security Key setup did not reach either a closed dialog or the verification step.');
+        }
+      }
+      await opening.securityKey.fill(securityKey);
       guard.assertSecurityKeyVerificationAllowed(switches);
-      state = advanceFlowState(state, 'SECURITY_KEY_VERIFICATION_ATTEMPTED'); store.save(state);
+      if (!resumeSecuritySetup) {
+        state = advanceFlowState(state, 'SECURITY_KEY_VERIFICATION_ATTEMPTED'); store.save(state);
+      }
       step.disallowSafeRerun(); step.markPotentiallySubmitted();
       guard.recordSecurityKeyVerification();
       await opening.securityKey.verifyOnce();
-      step.setActual('缴费确认1次；Security Key Verification: Passed；下一步核实真实申请。');
-      step.setBusinessData({ confirmationClicks: 1, securityVerificationClicks: opening.securityKey.verificationClickCount() });
+      step.setActual(`缴费确认${resumeSecuritySetup ? '按原Run恢复' : '1次'}；安全密钥设置动作${setup.actionClickCount}次；Security Key Verification: Passed；下一步核实真实申请。`);
+      step.setBusinessData({ confirmationClicks: 1, postSetupConfirmationClicks: opening.postSetupConfirmationClickCount(),
+        securityKeySetupActions: setup.actionClickCount, securityVerificationClicks: opening.securityKey.verificationClickCount() });
     });
     const submittedTo = new Date().toISOString();
     await business.step({ action: '3. Admin邮箱、原用户、老虎及本次时间唯一定位申请', expected: 'candidateCount=1；保存实际申请引用，不以Toast或HTTP 200判创建成功。' }, async step => {
@@ -196,7 +222,7 @@ test('OPEN-TIGER-003 原Journey老虎证券开户与审核 @money @mutation @L4'
     console.log('TIGER_STOP_STATE ' + JSON.stringify({ runId, stage: state.stage, reference: state.adminReference, securityClicks: opening.securityKey.verificationClickCount(), adminClicks: admin.approvalClickCount() }));
     throw error;
   } finally {
-    client.page.off('response', clientCapture); adminPage.off('response', adminCapture);
+    clientPage.off('response', clientCapture); adminPage.off('response', adminCapture);
     await testInfo.attach('tiger-safe-network-metadata', { body: maskSensitiveText(JSON.stringify(network)), contentType: 'application/json' });
     business.setBusinessData({ safeRequestEvidence: maskSensitiveText(JSON.stringify(network)) });
     await client.context.close();

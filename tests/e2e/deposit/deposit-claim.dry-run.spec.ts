@@ -1,4 +1,5 @@
 import { DepositClaimListPage } from '../../../pages/admin/DepositClaimListPage';
+import { AdminClientUsersPage } from '../../../pages/admin/AdminClientUsersPage';
 import { AccountDetailPage } from '../../../pages/client/AccountDetailPage';
 import { DepositPage } from '../../../pages/client/DepositPage';
 import { expect, test } from '../../../fixtures/workflow.fixture';
@@ -98,8 +99,11 @@ test(
           adminBaseUrl: env.admin.baseUrl!,
           guard
         });
+        if (!env.client.username) throw new Error('Default Client email is required.');
+        const identity = await new AdminClientUsersPage(adminPage)
+          .readDepositCustomerIdentityByEmail(env.admin.baseUrl!, env.client.username);
         expect(() => guard.assertClientSubmissionAllowed(false, false)).toThrow();
-        setActual('Client与Admin认证有效；Client提交和Admin处理均被安全开关阻断');
+        setActual(`Client与Admin认证有效；Admin申请类型对应${identity.accountType === 'BUSINESS' ? '企业主体名称匹配付款人' : '个人名 + 姓匹配客户'}；Client提交和Admin处理均被安全开关阻断`);
       }
     );
 
@@ -125,7 +129,7 @@ test(
         action: '3. 验证Client银行电汇入金支持香港账户USD和两位小数',
         expected: '香港账户选项包含美元，11.xx USD表单校验通过但不点击提交'
       },
-      async ({ setActual }) => {
+      async ({ setActual, setBusinessData }) => {
         await depositPage.goto(env.client.baseUrl!);
         const matrix = await depositPage.readAccountCurrencyMatrix();
         expect(matrix[config.accountType]).toContain(config.currencyLabel);
@@ -136,13 +140,21 @@ test(
         await depositPage.selectChannel(config.channel);
         await depositPage.selectPurpose(config.purpose);
         await depositPage.selectSourceOfFunds(config.sourceOfFunds);
+        await depositPage.selectTransferMethod(config.transferMethod);
+        const supportingDocument = await depositPage.uploadSupportingDocument(config.supportingDocumentPath);
+        expect(await depositPage.readSelectedTransferMethod()).toBe(config.transferMethod);
+        await depositPage.fillReference(`AUTO_${runId}`);
         const snapshot = await depositPage.readFormSnapshot();
         expect(snapshot.accountType).toContain(config.accountType);
         expect(snapshot.currencyLabel).toContain(config.currencyLabel);
         expect(new Decimal(snapshot.amount).equals(amount)).toBe(true);
+        expect(snapshot.channel).toBe(config.channel);
+        expect(snapshot.purpose).toBe(config.purpose);
+        expect(snapshot.sourceOfFunds).toBe(config.sourceOfFunds);
         expect(snapshot.submitEnabled).toBe(true);
         expect(depositPage.submissionClicks()).toBe(0);
-        setActual(`Client支持香港账户USD；${displayedAmount} USD两位小数表单有效，提交点击0次`);
+        setBusinessData({ depositTransferMethod: config.transferMethod, supportingDocument });
+        setActual(`Client支持香港账户USD；${displayedAmount} USD表单有效；渠道：${snapshot.channel}；用途：${snapshot.purpose}；资金来源：${snapshot.sourceOfFunds}；转账方式：${config.transferMethod}；支持性文件：${supportingDocument}已上传；提交点击0次`);
       }
     );
 
@@ -154,7 +166,7 @@ test(
       async ({ setActual, setBusinessData }) => {
         await adminList.goto(env.admin.baseUrl!);
         await adminList.applyFilters({ matchStatus: '已匹配' });
-        const usdRecords = (await adminList.readAllFilteredRecords(5))
+        const usdRecords = (await adminList.readAllFilteredRecords())
           .filter(record => record.currency === config.currency);
         expect(usdRecords.length).toBeGreaterThan(0);
         expect(usdRecords.every(record =>

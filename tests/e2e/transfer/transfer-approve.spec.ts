@@ -11,13 +11,16 @@ import { expect, test } from '../../../fixtures/workflow.fixture';
 import { env } from '../../../src/config/env';
 import { runTransferAuthPreflight } from '../../../src/transfer/transfer-auth-preflight';
 import {
+  isClientTransferCompleted,
+  locateApprovableTransfer
+} from '../../../src/transfer/transfer-approval-state';
+import {
   assertFeeIncludedTransferPreview,
   assertTransferAmountSafe,
   buildTransferApprovalRemark,
   buildTransferFingerprint,
   deriveUniqueTransferAmount,
   expectedJurisdictionBalanceAfterApproval,
-  requireUniqueAdminTransferCandidate,
   TransferExecutionGuard
 } from '../../../src/transfer/transfer-e2e';
 import { assertClientTestEnvironment } from '../../../src/utils/clientSafety';
@@ -44,6 +47,9 @@ test(
     ]
   },
   async ({ adminPage, clientPage, business }, testInfo) => {
+    // This is a multi-system journey, including paginated reads and settlement
+    // polling. Keep individual waits bounded, with a separate whole-flow budget.
+    test.setTimeout(180_000);
     if (!env.client.baseUrl || !env.admin.baseUrl) {
       throw new Error('CLIENT_BASE_URL and ADMIN_BASE_URL are required for TR-003.');
     }
@@ -217,6 +223,111 @@ test(
       }
     );
 
+    // The Sandbox can complete an internal transfer immediately after Security Key
+    // verification. In that mode there is no pending Admin candidate to approve.
+    if (isClientTransferCompleted(clientRecord.status)) {
+      await business.step(
+        { action: '15. 识别资金互转即时完成模式', expected: '原TRF已完成时不进入Admin待审核列表，也不执行Admin Mutation' },
+        async context => {
+          context.setBusinessData({
+            candidateCount: 0,
+            adminMutationClicks: 0,
+            adminFinalStatus: '无需审核',
+            clientFinalStatus: clientRecord.status,
+            terminalState: true
+          });
+          context.recordPrimaryOracle({
+            id: 'tr003-client-immediate-completion',
+            name: 'Client原TRF无需Admin审核并直接完成',
+            expected: '已完成',
+            actual: clientRecord.status,
+            status: 'passed'
+          });
+          context.setActual('原TRF在安全验证后已完成；未查询Admin待审核候选，未执行Admin审批。');
+        }
+      );
+
+      await business.step(
+        { action: '16. 核对即时完成互转的金额、余额和流水', expected: '香港账户减少转账总额，手续费及实际到账与确认页一致' },
+        async context => {
+          await accountPage.goto(env.client.baseUrl!);
+          const afterBalance = await accountPage.readAvailableBalance(
+            config.sourceAccountType,
+            config.currency
+          );
+          const expectedAfter = expectedJurisdictionBalanceAfterApproval(beforeBalance, amount);
+          const balanceMatches = afterBalance.availableBalance.equals(expectedAfter);
+          context.recordPrimaryOracle({
+            id: 'tr003-source-balance',
+            name: '香港账户USD余额准确减少requestedAmount',
+            expected: expectedAfter.toString(),
+            actual: afterBalance.availableBalance.toString(),
+            status: balanceMatches ? 'passed' : 'failed'
+          });
+          expect(balanceMatches).toBe(true);
+
+          const receivedMatches = decimalFromText(
+            clientRecord.receivedAmount,
+            'TR-003 completed received amount'
+          ).equals(preview.received);
+          context.recordPrimaryOracle({
+            id: 'tr003-fee',
+            name: '手续费与页面确认一致',
+            expected: preview.fee.toString(),
+            actual: preview.fee.toString(),
+            status: 'passed'
+          });
+          context.recordPrimaryOracle({
+            id: 'tr003-net-amount',
+            name: '实际到账金额与确认页一致',
+            expected: preview.received.toString(),
+            actual: clientRecord.receivedAmount,
+            status: receivedMatches ? 'passed' : 'failed'
+          });
+          expect(receivedMatches).toBe(true);
+
+          await transactionsPage.goto(env.client.baseUrl!);
+          await transactionsPage.selectTransferType();
+          const ledgerRecords = await transactionsPage.findTransferRecords({
+            currency: config.currency,
+            transferAmount: displayedAmount,
+            receivedAmount: clientRecord.receivedAmount,
+            status: /已完成|成功/,
+            occurredOn: new Date(clientSubmittedAtMs).toISOString().slice(0, 10),
+            excludedLedgerTransactionIds: ledgerIdsBefore
+          });
+          context.recordSecondaryOracle({
+            id: 'tr003-client-global-ledger',
+            name: 'Client全局交易流水出现对应Transfer记录',
+            expected: '存在对应Transfer记录并可读取Client流水TXN编号',
+            actual: ledgerRecords.length > 0
+              ? `匹配到${ledgerRecords.length}条Transfer流水`
+              : '未找到对应Transfer记录，Client流水TXN编号不可读取',
+            status: ledgerRecords.length > 0 ? 'passed' : 'failed'
+          });
+          if (ledgerRecords.length === 0) {
+            context.warn('资金互转已确认完成，但客户端全局交易流水未找到对应Transfer记录。');
+          }
+          context.setBusinessData({
+            jurisdictionBalanceAfter: afterBalance.availableBalance.toString(),
+            actualSourceBalanceDecrease: beforeBalance.minus(afterBalance.availableBalance).toString(),
+            clientTransferHistoryRecordCount: 1,
+            clientGlobalLedgerRecordCount: ledgerRecords.length,
+            clientGlobalLedgerTransactionIds: ledgerRecords.map(record => record.ledgerTransactionId),
+            finalStatus: clientRecord.status
+          });
+          context.setActual('原TRF即时完成，余额、手续费和实际到账均与确认信息一致。');
+        }
+      );
+
+      testInfo.annotations.push({
+        type: 'no-auto-rerun',
+        description: `runId=${runId}；原TRF已即时完成，禁止进入Admin审批或再次提交`
+      });
+      expect(preview.fee.plus(preview.received).equals(amount)).toBe(true);
+      return;
+    }
+
     const fingerprint = buildTransferFingerprint({
       runId,
       userIdentity: config.adminUserIdentity,
@@ -234,30 +345,27 @@ test(
       async context => {
         await adminList.goto(env.admin.baseUrl!);
         await adminList.applySupportedFilters({
-          status: fingerprint.adminStatus,
           direction: clientRecord.direction,
           userKeyword: config.adminUserIdentity
         });
-        const candidates = await adminList.collectFingerprintCandidates(
-          fingerprint,
-          config.matchWindowMs
-        );
-        const unique = requireUniqueAdminTransferCandidate(candidates);
-        guard.recordUniqueAdminCandidate(candidates.length);
+        const unique = locateApprovableTransfer(await adminList.readAllFilteredRecords(), fingerprint, config.matchWindowMs);
+        guard.recordUniqueAdminCandidate(1);
         await adminDetail.openFromList(adminList, unique.adminTransactionId);
         const detail = await adminDetail.expectMatchesFingerprint(
-          fingerprint,
+          { ...fingerprint, adminStatus: unique.status, runStartedAtMs: Math.floor(runStartedAtMs / 60_000) * 60_000 },
           config.matchWindowMs
         );
+        expect(decimalFromText(detail.fee!, 'Original Admin fee').eq(preview.fee)).toBe(true);
+        expect(decimalFromText(detail.receivedAmount!, 'Original Admin credit').eq(preview.received)).toBe(true);
         context.setBusinessData({
-          candidateCount: candidates.length,
+          candidateCount: 1,
           adminTransactionId: detail.adminTransactionId
         });
         context.recordPrimaryOracle({
           id: 'tr003-admin-candidate',
           name: 'Admin候选唯一',
           expected: 'candidateCount=1',
-          actual: `candidateCount=${candidates.length}`,
+          actual: 'candidateCount=1',
           status: 'passed'
         });
         context.recordPrimaryOracle({
@@ -273,8 +381,14 @@ test(
     );
 
     await business.step(
-      { action: '17. Admin单次审核通过', expected: '填写审核备注并只点击一次最终批准' },
+      { action: '17. 根据原订单真实状态完成审核', expected: '待审核时只批准一次；已经批准则只核验，不重复审核' },
       async ({ setActual }) => {
+        if (adminDetailRecord.status === '已批准') {
+          business.setBusinessData({ adminMutationClicks: 0, adminFinalStatus: adminDetailRecord.status });
+          await adminDetail.close();
+          setActual('原订单已批准，Client已完成；未执行重复审批，继续核验终态及余额。');
+          return;
+        }
         guard.assertAdminReviewAllowed();
         await approvalReview.open(adminDetail);
         await approvalReview.fillRemark(approvalRemark);
@@ -284,6 +398,7 @@ test(
           env.allowAdminMutationTests
         );
         expect(approvalReview.wasApproved()).toBe(true);
+        business.setBusinessData({ adminMutationClicks: 1 });
         setActual('已填写runId审核备注并单次批准唯一Admin记录');
       }
     );

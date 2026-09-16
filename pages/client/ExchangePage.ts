@@ -99,8 +99,12 @@ export class ExchangePage {
     await expect(this.quoteButton).toBeVisible();
   }
 
-  async selectSourceAsset(accountType: string, currency: string): Promise<void> {
-    await this.selectAsset('source', accountType, currency);
+  async selectSourceAsset(
+    accountType: string,
+    currency: string,
+    network?: string
+  ): Promise<void> {
+    await this.selectAsset('source', accountType, currency, network);
   }
 
   async selectTargetAsset(accountType: string, currency: string): Promise<void> {
@@ -172,7 +176,8 @@ export class ExchangePage {
   private async selectAsset(
     side: ExchangeSide,
     accountType: string,
-    currency: string
+    currency: string,
+    network?: string
   ): Promise<void> {
     const trigger = side === 'source' ? this.sourceAssetButton : this.targetAssetButton;
     await trigger.click();
@@ -182,15 +187,19 @@ export class ExchangePage {
     const accountHeading = menu.getByText(accountType, { exact: true });
     await expect(accountHeading).toBeVisible();
 
-    const optionValue = await accountHeading.evaluate((heading, targetCurrency) => {
+    const optionValue = await accountHeading.evaluate((heading, target) => {
       let candidate = heading.nextElementSibling;
 
       while (candidate?.getAttribute('role') === 'menuitem') {
         const labels = Array.from(candidate.querySelectorAll('p')).map(node =>
           node.textContent?.trim()
         );
+        const optionText = candidate.textContent?.replace(/\s+/g, ' ').trim() ?? '';
 
-        if (labels.includes(targetCurrency)) {
+        if (
+          labels.includes(target.currency) &&
+          (!target.network || optionText.includes(target.network))
+        ) {
           return candidate.getAttribute('value');
         }
 
@@ -198,10 +207,13 @@ export class ExchangePage {
       }
 
       return null;
-    }, currency);
+    }, { currency, network });
 
     if (!optionValue) {
-      throw new Error(`Currency ${currency} was not found under account type ${accountType}.`);
+      const networkDescription = network ? ` on network ${network}` : '';
+      throw new Error(
+        `Currency ${currency}${networkDescription} was not found under account type ${accountType}.`
+      );
     }
 
     const option = menu.locator(

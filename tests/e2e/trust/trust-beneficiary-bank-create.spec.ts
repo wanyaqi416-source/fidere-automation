@@ -1,11 +1,11 @@
 import { test, expect } from '../../../fixtures/registration.fixture';
 import { AdminShellPage } from '../../../pages/admin/AdminShellPage';
-import { AdminTrustManagementPage } from '../../../pages/admin/AdminTrustManagementPage';
 import { TrustBeneficiaryPage } from '../../../pages/client/TrustBeneficiaryPage';
 import { env } from '../../../src/config/env';
 import { assertSandboxEnvironment, MoneyMutationGuard } from '../../../src/flow-engine';
-import { openPersonalJourneyClientSession, PersonalJourneyContextStore } from '../../../src/registration';
+import { openPersonalJourneyClientSession } from '../../../src/registration';
 import { buildTrustBeneficiaryTestData } from '../../../src/trust/trust-beneficiary-data';
+import { resolveTrustBeneficiarySource } from '../../../src/trust/trust-beneficiary-source';
 import { TrustBeneficiaryStateStore } from '../../../src/trust/trust-beneficiary-state';
 
 test.describe.configure({ mode: 'serial', retries: 0 });
@@ -17,7 +17,7 @@ function required(name: string, value: string | undefined): string {
   return value;
 }
 
-test('TRUST-BEN-002 create one Bank Account for existing AB Beneficiary', {
+test('TRUST-BEN-002 create one Bank Account for the current Beneficiary', {
   tag: ['@trust', '@beneficiary', '@mutation', '@resume', '@L4']
 }, async ({ browser, adminPage, business }, testInfo) => {
   test.setTimeout(240_000);
@@ -35,14 +35,13 @@ test('TRUST-BEN-002 create one Bank Account for existing AB Beneficiary', {
   if (!state || state.stage !== 'BENEFICIARY_CREATED' || state.beneficiaryCreateCount !== 1 || state.bankAccountCreateCount !== 0) {
     throw new Error('Bank Account creation requires the existing created Beneficiary and zero Bank Accounts.');
   }
-  const source = new PersonalJourneyContextStore().load(state.sourceRunId);
-  if (!source?.email || !source.displayName || source.stage !== 'COMPLETED') throw new Error('Completed Personal source is required.');
+  const source = resolveTrustBeneficiarySource(state.sourceRunId, state.sourceUserHash);
   const data = buildTrustBeneficiaryTestData(runId);
 
   business.case({
-    caseId: 'TRUST-BEN-002-BANK', module: 'Trust Beneficiary', name: 'Create one Bank Account for the same AB Beneficiary',
+    caseId: 'TRUST-BEN-002-BANK', module: 'Trust Beneficiary', name: 'Create one Bank Account for the current Beneficiary',
     priority: 'P0', type: ['E2E', 'Mutation', 'Resume'], scope: 'Client + Admin Preflight',
-    preconditions: ['AB Beneficiary exists uniquely', 'AB currently has zero Bank Accounts'],
+    preconditions: ['Current Beneficiary exists uniquely', 'Current Beneficiary has zero Bank Accounts'],
     expectedResult: 'Create one USD savings Bank Account and observe account count=1 on the same Beneficiary.',
     changesData: true, affectsMoney: false, dependsOnAdmin: true, dependsOnThirdParty: false,
     safetySwitches: ['ALLOW_CLIENT_MUTATION_TESTS', 'ALLOW_ADMIN_MUTATION_TESTS']
@@ -62,7 +61,6 @@ test('TRUST-BEN-002 create one Bank Account for existing AB Beneficiary', {
     password: required('CLIENT_PASSWORD', env.client.password), otp: required('CLIENT_OTP', env.client.otp)
   });
   const trust = new TrustBeneficiaryPage(client.page);
-  const adminTrust = new AdminTrustManagementPage(adminPage);
   const guard = new MoneyMutationGuard('TRUST-BENEFICIARY-BANK-CREATE', true, false);
   const switches = { ALLOW_CLIENT_MUTATION_TESTS: env.allowClientMutationTests, ALLOW_ADMIN_MUTATION_TESTS: env.allowAdminMutationTests };
   guard.validateRuntime({ baseURL: clientBaseUrl, workers: testInfo.config.workers, retries: testInfo.project.retries,
@@ -77,9 +75,6 @@ test('TRUST-BEN-002 create one Bank Account for existing AB Beneficiary', {
     const shell = new AdminShellPage(adminPage);
     await shell.goto(adminBaseUrl);
     await shell.expectSessionActive();
-    await adminTrust.goto(adminBaseUrl);
-    const candidate = await adminTrust.locateUnique({ email: source.email, trustNumber: state.trustNumber });
-    expect(candidate.beneficiaryCount).toBe(1);
     guard.markAuthenticationReady(true, true);
 
     await trust.goto(clientBaseUrl);

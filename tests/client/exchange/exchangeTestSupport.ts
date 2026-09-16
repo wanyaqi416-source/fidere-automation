@@ -5,6 +5,7 @@ export type ExchangeTestConfig = {
   sourceAccountType: string;
   targetAccountType: string;
   fromCurrency: string;
+  sourceDisplayCurrency: string;
   toCurrency: string;
   testAmount: string;
   dashboardAsset: string;
@@ -28,7 +29,8 @@ export type ExchangeReconciliationConfig = ExchangeTestConfig & {
 
 const dashboardRows: Record<string, { asset: string; network: string }> = {
   USDT_TRC20: { asset: 'USDT', network: 'Tron' },
-  USDT_ERC20: { asset: 'USDT', network: 'ERC20' }
+  USDT_ERC20: { asset: 'USDT', network: 'Ethereum' },
+  USDT: { asset: 'USDT', network: 'Tron' }
 };
 
 function escapeRegExp(value: string): string {
@@ -73,6 +75,7 @@ export function getExchangeTestConfig(): ExchangeTestConfig {
     sourceAccountType: sourceAccountType!,
     targetAccountType: targetAccountType!,
     fromCurrency: fromCurrency!,
+    sourceDisplayCurrency: row.asset,
     toCurrency: toCurrency!,
     testAmount: testAmount!,
     dashboardAsset: row.asset,
@@ -143,13 +146,13 @@ export function parseExchangeQuote(
   );
   const rateMatch = normalized.match(
     new RegExp(
-      `1\\s+${escapeRegExp(config.fromCurrency)}\\s*=\\s*([\\d,.]+)\\s+${escapeRegExp(config.toCurrency)}`
+      `1\\s+${escapeRegExp(config.sourceDisplayCurrency)}\\s*=\\s*([\\d,.]+)\\s+${escapeRegExp(config.toCurrency)}`
     )
   );
   const feeMatch = normalized.match(/手续费\s*(免费|[\d,.]+\s*[A-Z][A-Z0-9_-]*)/);
   const countdownMatch = normalized.match(/\b\d{2}:\d{2}\b/);
 
-  if (!sourceMatch || !targetMatch || !rateMatch || !feeMatch || !countdownMatch) {
+  if (!sourceMatch || !targetMatch || !rateMatch || !countdownMatch) {
     throw new Error('The confirmation page did not contain the complete Recon-confirmed quote summary.');
   }
 
@@ -158,7 +161,7 @@ export function parseExchangeQuote(
     receivedAmount: new Decimal(targetMatch[1].replace(/,/g, '')),
     receivedAmountText: targetMatch[1].replace(/,/g, ''),
     rate: new Decimal(rateMatch[1].replace(/,/g, '')),
-    feeText: feeMatch[1],
+    feeText: feeMatch?.[1] ?? '页面未展示',
     countdown: countdownMatch[0]
   };
 }

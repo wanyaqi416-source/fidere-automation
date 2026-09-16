@@ -1,4 +1,5 @@
 import { env } from '../../../src/config/env';
+import { resolveDepositFormLabels } from '../../../src/deposit/deposit-form-labels';
 import { Decimal } from '../../../src/utils/money';
 
 export type DepositTestConfig = {
@@ -67,9 +68,11 @@ export function getDepositTestConfig(): DepositTestConfig {
     amountPrecision: config.amountPrecision,
     matchWindowMs: config.matchWindowMs,
     adminUserIdentity,
-    channel: config.channel!,
-    purpose: config.purpose!,
-    sourceOfFunds: config.sourceOfFunds!,
+    ...resolveDepositFormLabels({
+      channel: config.channel!,
+      purpose: config.purpose!,
+      sourceOfFunds: config.sourceOfFunds!
+    }),
     transferMethod: config.transferMethod,
     supportingDocumentPath: config.supportingDocumentPath
   };

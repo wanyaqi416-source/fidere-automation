@@ -2,6 +2,7 @@ import type { Page, Response } from '@playwright/test';
 
 export type SafeSigningNetworkObservation = {
   source: 'browser';
+  event: 'provider-completed' | 'fidere-signing-status' | 'other';
   host: string;
   path: string;
   method: string;
@@ -34,6 +35,13 @@ export class SigningNetworkEvidenceRecorder {
 
     this.observations.push({
       source: 'browser',
+      event: isDocumenso &&
+        method === 'POST' &&
+        url.pathname.includes('/api/trpc/recipient.completeDocumentWithToken')
+        ? 'provider-completed'
+        : url.pathname.includes('/api/get-profile-info-test')
+          ? 'fidere-signing-status'
+          : 'other',
       host: url.hostname,
       path: safePath(url.pathname),
       method,
@@ -61,4 +69,5 @@ export class SigningNetworkEvidenceRecorder {
   snapshot(): SafeSigningNetworkObservation[] {
     return this.observations.map(observation => ({ ...observation }));
   }
+
 }

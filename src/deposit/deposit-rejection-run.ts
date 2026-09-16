@@ -55,6 +55,12 @@ export class DepositRejectionRun {
   state() { return this.store.load(DEPOSIT_REJECTION_FLOW, this.runId)!; }
   submitted() { return existsSync(`${this.path}.submit`); }
   rejected() { return existsSync(`${this.path}.reject`); }
+  bankId() { return existsSync(`${this.path}.bank`) ? readFileSync(`${this.path}.bank`, 'utf8') : undefined; }
+  bindBank(id: string) {
+    if (!id.trim()) throw new Error('Approved bank reference is required.');
+    if (this.bankId() && this.bankId() !== id) throw new Error('Original Deposit bank must not change on Resume.');
+    if (!this.bankId()) writeFileSync(`${this.path}.bank`, id, { flag: 'wx' });
+  }
   hasAdminCreationEvidence() { return existsSync(`${this.path}.admin-binding`); }
   baseline(): DepositRejectionBaseline {
     if (!this.submitted()) throw new Error('No original Deposit submission baseline exists.');

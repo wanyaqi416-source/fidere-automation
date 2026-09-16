@@ -85,9 +85,11 @@ test('@platform @readonly @L2 Fresh identity generation does not reuse abandoned
     { emailDomain: 'sandbox.example.test', phonePrefix: '15591' }
   );
   expect(factory.readiness()).toMatchObject({ ready: true, availableCount: 0, canGenerate: true });
-  const preview = factory.previewFreshIdentity();
+  expect(() => factory.previewFreshIdentity()).toThrow('REGISTRATION_EMAIL_REQUIRED');
+  const preview = factory.previewFreshIdentity('provided@sandbox.example.test');
   expect(preview).toBeDefined();
-  const reserved = factory.reserveFreshIdentity('REGP-UNIT-001', preview!.id);
+  const reserved = factory.reserveFreshIdentity('REGP-UNIT-001', preview!.id, 'provided@sandbox.example.test');
+  expect(reserved.email).toBe('provided@sandbox.example.test');
   expect(reserved.displayName).toBe('TEST SANDBOX AA');
   expect(reserved.phone).toHaveLength(11);
 });

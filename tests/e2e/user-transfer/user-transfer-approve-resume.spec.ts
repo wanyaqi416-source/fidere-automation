@@ -34,7 +34,7 @@ test('U2U-002 Resume 原用户转账审核提交成功', { tag: ['@mutation', '@
     transferAmount: evidence.amount, transferCurrency: evidence.currency, fee: evidence.fee,
     expectedReceivedAmount: evidence.expectedCredit, sourceAccountType: evidence.sourceAccountType,
     targetAccountType: evidence.targetAccountType, sourceBalanceBefore: formatU2uBalance(evidence.senderBefore),
-    targetBalanceBefore: formatU2uBalance(evidence.recipientBefore), confirmationClicks: 0,
+    targetBalanceBefore: formatU2uBalance(evidence.recipientBefore!), confirmationClicks: 0,
     securityVerificationClicks: 0, createdOrderCount: 0, adminMutationClicks: 0 });
   await business.step({ action: '原发送方干净认证预检', expected: '原发送方身份和KYC正常；不创建任何新转账' }, async ({ setActual }) => {
     const participant = await loginU2uParticipant(browser, env.client.baseUrl!, env.client.username!);

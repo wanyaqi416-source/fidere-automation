@@ -66,6 +66,12 @@ export class ExchangeDetailDrawer {
     throw new Error(`兑换详情字段“${label}”没有可读取的相邻值。`);
   }
 
+  async readOptionalField(label: string): Promise<string | undefined> {
+    const fieldLabel = this.drawer.getByText(label, { exact: true });
+    if ((await fieldLabel.count()) === 0) return undefined;
+    return this.readField(label);
+  }
+
   async read(): Promise<ExchangeDetail> {
     const status = this.drawer.getByText('已完成', { exact: true });
     const actualReceivedAmount = this.drawer.getByRole('heading', { level: 4 });
@@ -76,7 +82,7 @@ export class ExchangeDetailDrawer {
       exchangeOrderId: await this.readField('交易编号'),
       status: (await status.innerText()).trim(),
       actualReceivedAmount: (await actualReceivedAmount.innerText()).trim(),
-      fee: await this.readField('手续费'),
+      fee: (await this.readOptionalField('手续费')) ?? '页面未展示',
       createdAt: await this.readField('创建日期'),
       completedAt: await this.readField('完成日期'),
       sourceAmount: await this.readField('兑换前金额'),

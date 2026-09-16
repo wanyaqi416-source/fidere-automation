@@ -28,7 +28,7 @@ test('U2U-004 原用户转账Admin审核入口只读核对', { tag: ['@readonly'
   business.disallowSafeRerun();
   business.setBusinessData({ runId, transferOrderId: state.clientReference, transferAmount: evidence.amount,
     transferCurrency: evidence.currency, fee: evidence.fee, expectedReceivedAmount: evidence.expectedCredit,
-    sourceBalanceBefore: formatU2uBalance(evidence.senderBefore), targetBalanceBefore: formatU2uBalance(evidence.recipientBefore),
+    sourceBalanceBefore: formatU2uBalance(evidence.senderBefore), targetBalanceBefore: formatU2uBalance(evidence.recipientBefore!),
     confirmationClicks: 0, securityVerificationClicks: 0, adminMutationClicks: 0, createdOrderCount: 0 });
   await business.step({ action: 'Admin原TXN唯一定位并核对审核详情', expected: '双方、方向、金额、费用、到账和时间匹配；只打开审核入口，不批准、不拒绝' }, async ({ setActual }) => {
     const { review, detail } = await openOriginalU2uReview({ page: adminPage, baseURL: env.admin.baseUrl!, sender: env.client.username!, recipient, evidence, business });
@@ -42,7 +42,7 @@ test('U2U-004 原用户转账Admin审核入口只读核对', { tag: ['@readonly'
     try {
       const current = await readU2uBalance(receiver.page, env.client.baseUrl!, evidence.targetAccountType, evidence.currency);
       business.setBusinessData({ targetBalanceAfter: formatU2uBalance(current), finalStatus: '待审核', confirmed: false, manualCheckRequired: false });
-      setActual(`收款方当前余额=${formatU2uBalance(current)} ${evidence.currency}；基线=${formatU2uBalance(evidence.recipientBefore)}。业务处于确定的待审核状态，不是未知资金结果。`);
+      setActual(`收款方当前余额=${formatU2uBalance(current)} ${evidence.currency}；基线=${formatU2uBalance(evidence.recipientBefore!)}。业务处于确定的待审核状态，不是未知资金结果。`);
     } finally { await receiver.context.close(); }
   });
 });

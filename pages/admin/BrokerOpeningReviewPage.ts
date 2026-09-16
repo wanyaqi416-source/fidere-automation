@@ -76,11 +76,20 @@ export class BrokerOpeningReviewPage {
     return { controls, options, finalButtonEnabled: await this.page.getByRole('button', { name: '保存处理结果', exact: true }).isEnabled() };
   }
 
-  async verifyDetail(row: BrokerOpeningRow, identity: { email: string; displayName: string }, broker: 'TIGER' | 'WEBULL' = 'TIGER'): Promise<void> {
+  async verifyDetail(row: BrokerOpeningRow, identity: {
+    email: string;
+    displayName: string;
+    accountType?: 'PERSONAL' | 'BUSINESS';
+  }, broker: 'TIGER' | 'WEBULL' = 'TIGER'): Promise<void> {
+    const rowEmails = row.customerText.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) ?? [];
+    expect(rowEmails.some(email => email.toLowerCase() === identity.email.toLowerCase())).toBe(true);
+    expect(row.customerText).toContain(identity.displayName);
     await this.openDetail(row);
     const main = this.page.getByRole('main');
-    await expect(main).toContainText(identity.email);
-    await expect(main).toContainText(identity.displayName);
+    if (identity.accountType !== 'BUSINESS') {
+      await expect(main).toContainText(identity.email);
+      await expect(main).toContainText(identity.displayName);
+    }
     await expect(main).toContainText(broker === 'WEBULL' ? /WEBULL|微牛证券/i : /TIGER|老虎证券/i);
     await expect(main).toContainText(row.status);
     await expect(main).toContainText(row.submittedAt);

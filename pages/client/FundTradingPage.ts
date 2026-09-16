@@ -26,6 +26,8 @@ export type WealthHistoryRecord = {
 
 export type WealthPosition = { productId: string; productName: string; principal: string; currency: string; status: string };
 
+export type RedeemableWealthPosition = WealthPosition & { holdingId: string };
+
 export type WealthPositionState = {
   renderedPositionRows: number;
   redeemActionCount: number;
@@ -160,6 +162,32 @@ export class FundTradingPage {
     return result;
   }
 
+  async readRedeemablePositions(): Promise<RedeemableWealthPosition[]> {
+    const result: RedeemableWealthPosition[] = [];
+    const buttons = this.page.getByRole('button', { name: '赎回', exact: true }).filter({ visible: true });
+    for (let index = 0; index < await buttons.count(); index += 1) {
+      const button = buttons.nth(index);
+      if (!await button.isEnabled()) continue;
+      result.push(await this.redeemablePositionForButton(button));
+    }
+    return result;
+  }
+
+  async openRedemption(position: RedeemableWealthPosition): Promise<void> {
+    const matches: Locator[] = [];
+    const buttons = this.page.getByRole('button', { name: '赎回', exact: true }).filter({ visible: true });
+    for (let index = 0; index < await buttons.count(); index += 1) {
+      const button = buttons.nth(index);
+      if (!await button.isEnabled()) continue;
+      const candidate = await this.redeemablePositionForButton(button);
+      if (candidate.holdingId === position.holdingId && candidate.productId === position.productId &&
+        candidate.productName === position.productName && candidate.currency === position.currency &&
+        candidate.principal === position.principal) matches.push(button);
+    }
+    if (matches.length !== 1) throw new Error(`Redeemable position candidateCount=${matches.length}; no action.`);
+    await matches[0].click();
+  }
+
   async readCompletePositions(): Promise<WealthPosition[]> {
     const rows = await this.readPositions();
     if (this.positionTotal === undefined || rows.length !== this.positionTotal) {
@@ -200,6 +228,29 @@ export class FundTradingPage {
       container = container.locator('..');
     }
     throw new Error('Unable to resolve the position card.');
+  }
+
+  private async redeemablePositionForButton(button: Locator): Promise<RedeemableWealthPosition> {
+    let container = button.locator('..');
+    for (let depth = 0; depth < 10; depth += 1) {
+      const text = (await container.innerText()).replace(/\u00a0/g, ' ');
+      const actionCount = await container.getByRole('button', { name: '赎回', exact: true }).count();
+      const amount = text.match(/总投资金额\s*(?:([A-Z]{3})\s*)?([\d,.]+)(?:\s*([A-Z]{3}))?/);
+      const productId = text.match(/(?:产品\s*)?ID\s*[:：]?\s*([A-Z0-9-]+)/i)?.[1];
+      if (actionCount === 1 && amount && productId) {
+        const currency = amount[1] ?? amount[3];
+        const holdingId = text.match(/持仓(?:编号|ID)\s*[:：]?\s*([A-Z0-9-]+)/i)?.[1] ??
+          text.match(/INV-[A-Z0-9-]+/i)?.[0] ?? productId;
+        const productName = text.split(/\r?\n/).map(value => value.trim()).find(value =>
+          value && !/^(?:持有中|可赎回|总投资金额|ID\b)/.test(value)
+        );
+        if (!currency || !productName) throw new Error('Redeemable position identity is incomplete.');
+        return { holdingId, productId, productName, principal: amount[2].replace(/,/g, ''), currency,
+          status: text.match(/可赎回|持有中|已到期/)?.[0] ?? '' };
+      }
+      container = container.locator('..');
+    }
+    throw new Error('Unable to resolve the position containing the enabled redemption action.');
   }
 
   async readHistory(

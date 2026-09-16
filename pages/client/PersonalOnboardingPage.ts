@@ -38,6 +38,12 @@ export type AuthorizationDocumentCreationEvidence = {
   safeMessage?: string;
 };
 
+export function authorizationDocumentCreationAccepted(
+  evidence: AuthorizationDocumentCreationEvidence
+): boolean {
+  return evidence.httpStatus >= 200 && evidence.httpStatus < 300;
+}
+
 export type PersonalProfileSubmissionEvidence = {
   requestObserved: true;
   host: string;
@@ -137,21 +143,22 @@ const optionPatterns: Record<string, RegExp> = {
 async function readCreateKycDocEvidence(
   response: Response
 ): Promise<AuthorizationDocumentCreationEvidence> {
-  const responseText = await response.text();
-  const jsonStart = responseText.indexOf('{');
-  if (jsonStart < 0) {
-    throw new Error(
-      `create-kyc-doc returned HTTP ${response.status()} without a JSON payload.`
-    );
-  }
-  const payload = JSON.parse(responseText.slice(jsonStart)) as {
+  let payload: {
     data?: { token?: unknown; signingUrl?: unknown };
     token?: unknown;
     signingUrl?: unknown;
     code?: unknown;
     message?: unknown;
     msg?: unknown;
-  };
+  } = {};
+  try {
+    const responseText = await response.text();
+    const jsonStart = responseText.indexOf('{');
+    if (jsonStart >= 0) payload = JSON.parse(responseText.slice(jsonStart));
+  } catch {
+    // Navigation can discard the response body; HTTP status remains valid evidence.
+    payload = {};
+  }
   const data = payload.data ?? payload;
   const hasToken = typeof data.token === 'string' && data.token.length > 0;
   const hasSigningUrl = typeof data.signingUrl === 'string' && data.signingUrl.length > 0;
@@ -186,20 +193,21 @@ async function readProfileSubmissionEvidence(
   PersonalProfileSubmissionEvidence,
   'redirectedToSignSuccess' | 'pendingReviewPageVisible' | 'pendingReviewIndicator'
 >> {
-  const responseText = await response.text();
-  const jsonStart = responseText.indexOf('{');
-  if (jsonStart < 0) {
-    throw new Error(
-      `member-profile returned HTTP ${response.status()} without a JSON payload.`
-    );
-  }
-  const payload = JSON.parse(responseText.slice(jsonStart)) as {
+  let payload: {
     data?: { status?: unknown; code?: unknown; message?: unknown; msg?: unknown };
     status?: unknown;
     code?: unknown;
     message?: unknown;
     msg?: unknown;
-  };
+  } = {};
+  try {
+    const responseText = await response.text();
+    const jsonStart = responseText.indexOf('{');
+    if (jsonStart >= 0) payload = JSON.parse(responseText.slice(jsonStart));
+  } catch {
+    // sign-success navigation can discard the body after a successful response.
+    payload = {};
+  }
   const data = payload.data ?? payload;
   const url = new URL(response.url());
   const message = payload.message ?? payload.msg ?? data.message ?? data.msg;
@@ -409,12 +417,12 @@ export class PersonalOnboardingPage {
       const url = new URL(response.url());
       return response.request().method().toUpperCase() === 'POST' &&
         url.pathname.endsWith('/create-kyc-doc');
-    }, { timeout: 30_000 });
+    }, { timeout: 120_000 });
     await this.nextButton.click();
     const creationResponse = await creationResponsePromise;
     await expect.poll(() => this.visibleRegistrationStep(), {
-      timeout: 30_000,
-      intervals: [300, 500, 750, 1_000],
+      timeout: 120_000,
+      intervals: [300, 500, 750, 1_000, 2_000, 5_000],
       message: 'Tax residency save did not enter the authorization step.'
     }).toBe('authorization');
 
@@ -539,12 +547,12 @@ export class PersonalOnboardingPage {
       const url = new URL(response.url());
       return response.request().method().toUpperCase() === 'POST' &&
         url.pathname.endsWith('/create-kyc-doc');
-    }, { timeout: 30_000 });
+    }, { timeout: 120_000 });
     await this.page.reload({ waitUntil: 'domcontentloaded' });
     const response = await responsePromise;
     await expect.poll(() => this.visibleRegistrationStep(), {
-      timeout: 30_000,
-      intervals: [200, 400, 750, 1_000],
+      timeout: 120_000,
+      intervals: [200, 400, 750, 1_000, 2_000, 5_000],
       message: 'Personal registration recovery reload did not restore the authorization step.'
     }).toBe('authorization');
     return readCreateKycDocEvidence(response);

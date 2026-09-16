@@ -36,9 +36,16 @@ export class PersonalRegistrationPage {
   async requestVerificationCode(): Promise<void> {
     await expect(this.requestCodeButton).toBeEnabled();
     await this.requestCodeButton.click();
-    await expect(
-      this.page.getByText(/验证码已发送|verification code.*sent/i).first()
-    ).toBeVisible({ timeout: 15_000 });
+    const sent = this.page.getByText(/验证码已发送|verification code.*sent/i).first();
+    const failed = this.page.getByText(/(?:验证码|邮件|邮箱).*发送失败|发送.*(?:验证码|邮件).*失败|failed to send|email.*delivery.*failed/i).first();
+    let result = 'pending';
+    await expect.poll(async () => {
+      result = await failed.isVisible() ? 'failed' : await sent.isVisible() ? 'sent' : 'pending';
+      return result;
+    }, { timeout: 15_000, message: 'EMAIL_OTP_SEND_UNCONFIRMED: 未观察到验证码发送结果，不更换邮箱或重发。' }).not.toBe('pending');
+    if (result === 'failed') {
+      throw new Error('EMAIL_OTP_SEND_FAILED: 页面提示验证码发送失败，请检查本次邮箱和邮件服务；未更换邮箱或重新注册。');
+    }
   }
 
   async verifyEmail(otp: string): Promise<void> {

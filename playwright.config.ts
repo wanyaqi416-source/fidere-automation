@@ -27,6 +27,7 @@ export default defineConfig({
     ['./reporters/fidere-business-reporter.ts']
   ],
   use: {
+    headless: Boolean(process.env.CI) || process.env.PLAYWRIGHT_HEADLESS !== 'false',
     actionTimeout: env.actionTimeoutMs,
     navigationTimeout: env.navigationTimeoutMs,
     trace: process.env.CI ? 'on-first-retry' : 'retain-on-failure',

@@ -6,6 +6,7 @@ export type AdminFiatAccountCandidate = {
   customerText: string;
   bankName: string;
   accountText: string;
+  accountNumber?: string;
   holderText: string;
   submittedAtText: string;
 };
@@ -72,6 +73,26 @@ export class AdminFiatAccountReviewPage {
         candidate.holderText.includes(input.displayName);
     });
     return { candidateCount: candidates.length, candidates };
+  }
+
+  async readApprovedAccountsForEmail(baseURL: string, email: string): Promise<AdminFiatAccountCandidate[]> {
+    await this.goto(baseURL, '已通过');
+    await this.search(email);
+    const records = new Map<string, AdminFiatAccountCandidate>();
+    for (let page = 0; page < 100; page++) {
+      const rows = await this.readRows();
+      for (const row of rows) {
+        const emails = row.customerText.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) ?? [];
+        if (emails.some(value => value.toLowerCase() === email.toLowerCase())) records.set(row.accountId, row);
+      }
+      const next = this.page.getByRole('button', { name: /Go to next page|下一页/i });
+      if (await next.count() === 0 || await next.isDisabled()) return [...records.values()];
+      await expect(next).toHaveCount(1);
+      const ids = rows.map(row => row.accountId).join('|');
+      await next.click();
+      await expect.poll(async () => (await this.readRows()).map(row => row.accountId).join('|')).not.toBe(ids);
+    }
+    throw new Error('Approved bank account pagination exceeded its bounded limit.');
   }
 
   async openUnique(candidate: AdminFiatAccountCandidate): Promise<void> {
@@ -179,6 +200,7 @@ export class AdminFiatAccountReviewPage {
         customerText: cells[1].replace(/\s+/g, ' ').trim(),
         bankName: cells[2].replace(/\s+/g, ' ').trim(),
         accountText: cells[3].replace(/\s+/g, ' ').trim(),
+        accountNumber: (await row.locator('td').nth(3).locator('p').innerText()).trim(),
         holderText: cells[4].replace(/\s+/g, ' ').trim(),
         submittedAtText: cells[5].replace(/\s+/g, ' ').trim()
       });

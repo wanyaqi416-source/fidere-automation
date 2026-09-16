@@ -11,6 +11,15 @@ const input = { email: 'ah@example.test', displayName: 'TEST SANDBOX AH', submit
 test('Tiger matches actual broker label, email, personal type and minute-precision time', () => {
   expect(matchTigerOpening([row], input).candidates).toHaveLength(1);
 });
+test('Tiger matches a Business application when the runtime user is Business', () => {
+  const businessRow = { ...row, customerText: 'SANDBOX COMPANY\nbusiness@example.test', accountType: '企业' };
+  expect(matchTigerOpening([businessRow], {
+    email: 'business@example.test', displayName: 'SANDBOX COMPANY', accountType: 'BUSINESS'
+  }).candidates).toHaveLength(1);
+  expect(matchTigerOpening([businessRow], {
+    email: 'business@example.test', displayName: 'SANDBOX COMPANY', accountType: 'PERSONAL'
+  }).candidates).toHaveLength(0);
+});
 test('Tiger excludes another user, broker, time or pinned application; never hides duplicates', () => {
   for (const changed of [{ customerText: 'TEST SANDBOX AH\nother@example.test' }, { broker: 'webull（Webull 微牛证券）' }, { submittedAt: '2026-08-24 18:33' }]) {
     expect(matchTigerOpening([{ ...row, ...changed }], input).candidates).toHaveLength(0);

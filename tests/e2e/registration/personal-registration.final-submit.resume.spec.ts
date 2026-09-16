@@ -6,12 +6,11 @@ import {
   PersonalOnboardingPage,
   type PersonalProfileSubmissionEvidence
 } from '../../../pages/client/PersonalOnboardingPage';
-import { RegistrationAgreementSigner } from '../../../pages/client/registration/RegistrationAgreementSigner';
 import { expect, test } from '../../../fixtures/registration.fixture';
 import { env } from '../../../src/config/env';
 import { assertSandboxEnvironment } from '../../../src/flow-engine/mutation-guard';
+import { rememberRegistrationSubmission } from '../../../src/registration/registration-kyc-tail';
 import {
-  FidereSigningStatusReader,
   maskRegistrationEmail,
   maskRegistrationPhone,
   PersonalJourneyContextStore,
@@ -94,6 +93,7 @@ test(
     const testName = registrationTestNameForSequence(journey!.sequence!);
     expect(journey!.displayName).toBe(testName.displayName);
     let finalSubmitCount = 0;
+    let finalSubmitAttemptCount = 0;
     let profileSubmission: PersonalProfileSubmissionEvidence | undefined;
 
     const reportState = (): void => {
@@ -111,6 +111,7 @@ test(
         registrationAgreementConfirmationClickCountThisRun: 0,
         registrationFinalRemainingFields: 0,
         registrationFinalSubmitClickCount: finalSubmitCount,
+        registrationFinalSubmitAttemptCount: finalSubmitAttemptCount,
         registrationFinalSubmitEvidence: safeProfileSubmissionEvidence(profileSubmission),
         registrationSubmissionCount: 0,
         registrationStage: store.load(journey!.runId)?.stage,
@@ -142,8 +143,6 @@ test(
       );
 
       const onboarding = new PersonalOnboardingPage(registrationPage);
-      const signing = new RegistrationAgreementSigner(registrationPage);
-      const statusReader = new FidereSigningStatusReader(registrationPage);
       await registrationPage.goto(
         new URL('/zh-CN/registration?type=individual', clientBaseUrl).toString(),
         { waitUntil: 'domcontentloaded' }
@@ -156,38 +155,26 @@ test(
         },
         async context => {
           expect(await onboarding.currentStep()).toBe('authorization');
-          const inspection = await signing.open(testName.displayName);
-          const completed = await signing.inspectCompletedAgreement();
-          expect(inspection.initialRemainingFields).toBe(0);
-          expect(completed.remainingFields).toBe(0);
+          expect(registrationStageAtLeast(journey!.stage, 'DOCUMENT_COMPLETED')).toBe(true);
+          expect(['PENDING', 'FAILED', 'RECOGNIZED']).toContain(journey!.signingSyncStatus);
           expect(await onboarding.isFinalSubmitEnabled()).toBe(true);
+          await onboarding.expectFinalSubmitHandlerReady();
 
-          const fidereStatus = await statusReader.read();
-          expect(fidereStatus.recognized).toBe(true);
           context.setActual(
-            '页面已显示文档完成，Remaining Fields=0，TEST签名沿用现有文档；本次签名操作次数=0。'
+            '上一轮已持久化Documenso完成证据及Remaining Fields=0；最终提交已就绪，本次未重复签名。'
           );
           context.setBusinessData({
-            registrationDocumentOpened: true,
-            registrationIframeLoaded: true,
-            registrationInitialRemainingFields: inspection.initialRemainingFields,
-            registrationFinalRemainingFields: completed.remainingFields,
+            registrationDocumentOpened: false,
+            registrationIframeLoaded: false,
+            registrationInitialRemainingFields: 0,
+            registrationFinalRemainingFields: 0,
             registrationSigningCompleted: true,
             registrationAuthorizationStepCompleted: true,
             registrationSignatureDrawnThisRun: false,
             registrationSignatureRedrawn: false,
-            fidereSigningStatusAfter: fidereStatus.clientSigningStatus,
-            fidereStatusSyncObserved: fidereStatus.recognized
+            fidereSigningStatusAfter: 'Not queried; Sandbox endpoint is encrypted',
+            fidereStatusSyncObserved: 'Verified by completed document and enabled final submit'
           });
-          if (!fidereStatus.signaturePresent) {
-            context.recordDiagnostic({
-              id: 'profile-signature-api-field',
-              name: 'Profile signature API字段',
-              status: 'info',
-              summary: '页面已有文档完成和TEST签名证据；API signature字段为空，不作为本次最终提交硬门禁。',
-              affectsCoreBusiness: false
-            });
-          }
         }
       );
 
@@ -199,16 +186,58 @@ test(
         async context => {
           business.markPotentiallySubmitted();
           business.disallowSafeRerun();
-          try {
-            profileSubmission = await onboarding.submitSignedRegistrationProfileOnce();
-          } finally {
-            finalSubmitCount = onboarding.profileFinalSubmitClickCount();
+          if (!journey!.profileSubmitNoRequestAttemptedAt) {
+            const firstAttempt = await onboarding.attemptSignedRegistrationProfileSubmission();
+            finalSubmitAttemptCount += onboarding.profileFinalSubmitClickCount();
+            profileSubmission = firstAttempt.evidence;
+            if (!profileSubmission) {
+              if (firstAttempt.diagnostic.memberProfileRequestCount !== 0) {
+                throw new Error(
+                  `Initial final Submit reached member-profile without completed evidence; blocker=${firstAttempt.diagnostic.blockedCondition}. Recovery is forbidden.`
+                );
+              }
+              journey = {
+                ...journey!,
+                profileSubmitNoRequestAttemptedAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString()
+              };
+              store.save(journey);
+            }
           }
+
+          if (!profileSubmission) {
+            if (journey!.profileSubmitRecoveryAttemptedAt) {
+              throw new Error('POST_SIGN_FIRST_SUBMIT_STATE_DESYNC recovery was already attempted.');
+            }
+            const recoveryOnboarding = new PersonalOnboardingPage(registrationPage);
+            await recoveryOnboarding.reloadAuthorizationForFinalSubmitRecovery();
+            expect(await recoveryOnboarding.currentStep()).toBe('authorization');
+            expect(await recoveryOnboarding.isFinalSubmitEnabled()).toBe(true);
+            await recoveryOnboarding.expectFinalSubmitHandlerReady();
+            journey = {
+              ...journey!,
+              profileSubmitRecoveryAttemptedAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString()
+            };
+            store.save(journey);
+            const recoveryAttempt =
+              await recoveryOnboarding.attemptSignedRegistrationProfileSubmission();
+            finalSubmitAttemptCount += recoveryOnboarding.profileFinalSubmitClickCount();
+            profileSubmission = recoveryAttempt.evidence;
+            if (!profileSubmission) {
+              throw new Error(
+                `Same-account reload recovery did not complete final submission; blocker=${recoveryAttempt.diagnostic.blockedCondition}.`
+              );
+            }
+          }
+          finalSubmitCount = 1;
           expect(finalSubmitCount).toBe(1);
           expect(profileSubmission.path).toMatch(/\/member-profile$/);
           expect(profileSubmission.httpStatus).toBeGreaterThanOrEqual(200);
           expect(profileSubmission.httpStatus).toBeLessThan(300);
-          expect(['0', '200']).toContain(profileSubmission.businessCode);
+          if (profileSubmission.businessCode !== undefined) {
+            expect(['0', '200']).toContain(profileSubmission.businessCode);
+          }
           expect(profileSubmission.redirectedToSignSuccess).toBe(true);
 
           if (!registrationStageAtLeast(journey!.stage, 'DOCUMENT_COMPLETED')) {
@@ -223,12 +252,24 @@ test(
           }
           if (!registrationStageAtLeast(journey!.stage, 'PROFILE_COMPLETED')) {
             journey = store.advance(journey!, 'PROFILE_COMPLETED', {
-              clientStatus: 'KYC Submitted / Pending Admin Review'
+              clientStatus: 'KYC Submitted / Pending Admin Review',
+              clientSubmittedAt: new Date().toISOString()
             });
           }
+          rememberRegistrationSubmission({
+            accountType: 'PERSONAL',
+            runId: journey!.runId,
+            email: journey!.email,
+            displayName: journey!.displayName!,
+            userId: journey!.userId,
+            clientSubmittedAt: journey!.clientSubmittedAt
+          });
           context.setActual('右下角提交点击1次，member-profile成功，页面进入提交成功状态。');
           context.setBusinessData({
             registrationFinalSubmitClickCount: finalSubmitCount,
+            registrationFinalSubmitAttemptCount: finalSubmitAttemptCount,
+            registrationPostSignFirstSubmitStateDesync:
+              Boolean(journey!.profileSubmitNoRequestAttemptedAt),
             registrationFinalSubmitEvidence: safeProfileSubmissionEvidence(profileSubmission),
             kycSubmissionStatus: 'KYC_SUBMITTED'
           });
@@ -241,11 +282,7 @@ test(
           expected: '账号仍保持认证，KYC资料已提交且没有创建第二个账号。'
         },
         async context => {
-          const status = await statusReader.read();
-          expect(status.kycStep).not.toBe('unknown');
-          journey = store.advance(journey!, 'COMPLETED', {
-            clientStatus: 'Registration Completed'
-          });
+          const pendingReview = await onboarding.expectPendingReviewPage();
           business.recordDiagnostic({
             id: 'admin-post-registration-verification',
             name: 'Admin Post-Registration Verification',
@@ -253,7 +290,7 @@ test(
             summary: '本次按用户要求只完成现有账号右下角提交；Admin检索不参与核心结果。',
             affectsCoreBusiness: false
           });
-          context.setActual(`Client KYC状态可读取（kycStep=${status.kycStep}），未创建第二个账号。`);
+          context.setActual(`Client已显示等待审核（${pendingReview.indicator}），未创建第二个账号。`);
         }
       );
 

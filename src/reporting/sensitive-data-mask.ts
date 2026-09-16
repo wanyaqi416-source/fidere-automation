@@ -90,6 +90,7 @@ const allowedBusinessFields = new Set([
   'beneficiaryAccountSuffix',
   'withdrawalPurpose',
   'withdrawalTransferMethod',
+  'depositTransferMethod',
   'supportingDocument',
   'createdOrderCount',
   'adminMutationClicks',

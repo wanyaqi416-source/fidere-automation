@@ -89,7 +89,6 @@ export class WithdrawalPage {
     }
     const currentAccount = (await accountCombobox.innerText()).replace(/\s+/g, ' ').trim();
     const accountChanges = !currentAccount.includes(accountType);
-    const previousCurrencies = accountChanges ? await this.readCurrencyOptions() : [];
 
     await this.selectOption(accountCombobox, accountType);
 
@@ -98,10 +97,7 @@ export class WithdrawalPage {
         .poll(
           async () => {
             const currentCurrencies = await this.readCurrencyOptions();
-            return (
-              currentCurrencies.length > 0 &&
-              JSON.stringify(currentCurrencies) !== JSON.stringify(previousCurrencies)
-            );
+            return currentCurrencies.length > 0 && (await accountCombobox.innerText()).includes(accountType);
           },
           {
             message: `等待Client法币转出账户“${accountType}”的币种选项刷新`,
@@ -155,6 +151,19 @@ export class WithdrawalPage {
     accountSuffix: string;
     currency: string;
   }): Promise<void> {
+    const matches = await this.beneficiaryMatches(input);
+    if (matches.length !== 1) {
+      throw new Error(`Client Withdrawal expected one beneficiary matching configured name, account suffix and ${input.currency}; found ${matches.length}.`);
+    }
+    await matches[0].click();
+    await expect(await this.readSummaryLabelValue('收款人')).toBe(input.name);
+  }
+
+  async canSelectBeneficiary(input: { name: string; accountSuffix: string; currency: string }): Promise<boolean> {
+    return (await this.beneficiaryMatches(input)).length === 1;
+  }
+
+  private async beneficiaryMatches(input: { name: string; accountSuffix: string; currency: string }): Promise<Locator[]> {
     const panel = await this.beneficiaryPanel();
     const names = await panel.getByText(input.name, { exact: true }).all();
     const matches: Locator[] = [];
@@ -172,14 +181,7 @@ export class WithdrawalPage {
       }
     }
 
-    if (matches.length !== 1) {
-      throw new Error(
-        `Client Withdrawal expected one beneficiary matching configured name, account suffix and ${input.currency}; found ${matches.length}.`
-      );
-    }
-
-    await matches[0].click();
-    await expect(await this.readSummaryLabelValue('收款人')).toBe(input.name);
+    return matches;
   }
 
   async fillAmount(amount: string): Promise<void> {

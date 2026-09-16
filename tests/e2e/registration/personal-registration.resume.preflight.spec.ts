@@ -12,13 +12,10 @@ import { expect, test } from '../../../fixtures/registration.fixture';
 import { env } from '../../../src/config/env';
 import { assertSandboxEnvironment } from '../../../src/flow-engine/mutation-guard';
 import {
-  FidereSigningStatusReader,
   loadPersonalRegistrationProfile,
   maskRegistrationEmail,
   maskRegistrationPhone,
   PersonalJourneyContextStore,
-  summarizeFidereSigningStatus,
-  type FidereSigningStatusSnapshot,
   TestUserFactory
 } from '../../../src/registration';
 
@@ -126,7 +123,6 @@ test(
     let documentFrameUrl: string | undefined;
     let signerMatchesJourney: boolean | undefined;
     let documentCreationRequestsBlocked = 0;
-    let fidereSigningStatus: FidereSigningStatusSnapshot | undefined;
     let storedJourneyContext: BrowserContext | undefined;
     let inspectionPage = registrationPage;
 
@@ -224,8 +220,7 @@ test(
           async context => {
             const onboarding = new PersonalOnboardingPage(inspectionPage);
             submitEnabledBeforeSigning = await onboarding.isFinalSubmitEnabled();
-            fidereSigningStatus = await new FidereSigningStatusReader(inspectionPage).read();
-            submitGateWarning = submitEnabledBeforeSigning && !fidereSigningStatus.recognized;
+            submitGateWarning = submitEnabledBeforeSigning;
             if (submitGateWarning) {
               context.warn(
                 'POTENTIAL_PRODUCT_DEFECT: 未完成Documenso时Client最终提交按钮已可操作；Preflight未点击。'
@@ -247,8 +242,7 @@ test(
                 signerMatchesJourney = initial.documentBelongsToTestUser;
                 resumeSigningReady =
                   initial.documentBelongsToTestUser &&
-                  !initial.identityChallengePresent &&
-                  !fidereSigningStatus.recognized;
+                  !initial.identityChallengePresent;
               } catch (error) {
                 if (!(error instanceof Error)) throw error;
                 documensoDraftAvailable = false;
@@ -269,8 +263,8 @@ test(
               resumeSigningReady,
               submitEnabledBeforeSigning,
               submitGateWarning,
-              fidereSigningStatusAfter: summarizeFidereSigningStatus(fidereSigningStatus),
-              fidereStatusSyncObserved: fidereSigningStatus.recognized,
+              fidereSigningStatusAfter: 'Not queried; Sandbox endpoint is encrypted',
+              fidereStatusSyncObserved: false,
               documensoFieldSignCount: 0,
               completeClickCount: 0,
               signConfirmClickCount: 0,
@@ -320,10 +314,8 @@ test(
       resumeSigningReady,
       submitGateWarning,
       documentCreationRequestsBlocked,
-      fidereSigningStatusAfter: fidereSigningStatus
-        ? summarizeFidereSigningStatus(fidereSigningStatus)
-        : 'Not Read',
-      fidereStatusSyncObserved: fidereSigningStatus?.recognized,
+      fidereSigningStatusAfter: 'Not queried; Sandbox endpoint is encrypted',
+      fidereStatusSyncObserved: false,
       accountCreationStatus: 'ACCOUNT_CREATED',
       kycSubmissionStatus: 'KYC_NOT_SUBMITTED',
       documensoCompletionStatus: 'DOCUMENSO_NOT_COMPLETED',

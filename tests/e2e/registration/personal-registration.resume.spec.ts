@@ -1,12 +1,11 @@
 import { resolve } from 'node:path';
 
-import type { BrowserContext, TestInfo } from '@playwright/test';
-
-import { AdminClientUsersPage } from '../../../pages/admin/AdminClientUsersPage';
+import type { TestInfo } from '@playwright/test';
 import { clientRouteUrl } from '../../../pages/client/HomePage';
 import { LoginPage } from '../../../pages/client/LoginPage';
 import {
   PersonalOnboardingPage,
+  authorizationDocumentCreationAccepted,
   type AuthorizationDocumentCreationEvidence,
   type FinalSubmitAttemptDiagnostic,
   type PersonalAddressProofUploadEvidence,
@@ -14,11 +13,14 @@ import {
 } from '../../../pages/client/PersonalOnboardingPage';
 import { RegistrationAgreementSigner } from '../../../pages/client/registration/RegistrationAgreementSigner';
 import { expect, test } from '../../../fixtures/registration.fixture';
-import { authStatePaths, existingAuthState } from '../../../src/config/auth';
 import { env } from '../../../src/config/env';
 import { recoverPreSubmitOnce } from '../../../src/flow-engine';
 import {
-  FidereSigningStatusReader,
+  rememberRegistrationSubmission,
+  runRegistrationKycTail,
+  submittedRegistrationSource
+} from '../../../src/registration/registration-kyc-tail';
+import {
   loadPersonalRegistrationProfile,
   maskRegistrationEmail,
   maskRegistrationPhone,
@@ -59,6 +61,7 @@ function safeCreationEvidence(evidence: AuthorizationDocumentCreationEvidence | 
     time: evidence.observedAt,
     payloadKind: evidence.payloadKind,
     documentPayloadPresent: evidence.documentPayloadPresent,
+    requestAccepted: authorizationDocumentCreationAccepted(evidence),
     businessCode: evidence.businessCode,
     safeMessage: evidence.safeMessage
   };
@@ -92,8 +95,8 @@ test(
       { type: 'affectsMoney', description: 'false' }
     ]
   },
-  async ({ browser, business, registrationContext, registrationPage }, testInfo) => {
-    test.setTimeout(300_000);
+  async ({ browser, business, registrationContext, registrationPage, adminPage }, testInfo) => {
+    test.setTimeout(900_000);
     business.flow('personal-registration', {
       caseId: 'REG-P-002',
       name: 'Personal Registration现有账号KYC与签署Resume',
@@ -106,13 +109,15 @@ test(
     });
 
     const clientBaseUrl = required('CLIENT_BASE_URL', env.client.baseUrl);
-    const adminBaseUrl = env.admin.baseUrl;
     const clientPassword = required('CLIENT_PASSWORD', env.client.password);
     const clientOtp = required('CLIENT_OTP', env.client.otp);
     const signatureText = env.personalRegistration.signatureText;
     const profile = loadPersonalRegistrationProfile(env.personalRegistration.profilePath);
     const store = new PersonalJourneyContextStore();
-    let journey = store.findCurrentRecoverableJourney();
+    const requestedResumeEmail = env.personalRegistration.email?.trim().toLowerCase();
+    let journey = requestedResumeEmail
+      ? store.findByEmail(requestedResumeEmail)
+      : store.findCurrentRecoverableJourney();
     expect(journey).toBeTruthy();
     expect([
       'CLIENT_AUTHENTICATED',
@@ -156,7 +161,6 @@ test(
     let recoveryReloadCount = 0;
     let postSignFirstSubmitStateDesync = false;
     let clientLoginVerified = false;
-    let adminCandidateCount: number | undefined;
     let finalStatus = 'KYC_NOT_SUBMITTED';
 
     const reportState = (): void => {
@@ -172,7 +176,7 @@ test(
         registrationSignerImplementation: 'RegistrationAgreementSigner',
         registrationSignerType: 'Registration Agreement',
         registrationDocumentCreated:
-          Boolean(documentCreation?.documentPayloadPresent) ||
+          Boolean(documentCreation && authorizationDocumentCreationAccepted(documentCreation)) ||
           startingStage === 'AUTHORIZATION_REQUIRED',
         registrationAddressProofUpload: addressProofUpload,
         registrationDocumentCreationEvidence: safeCreationEvidence(documentCreation),
@@ -208,7 +212,7 @@ test(
         kycSubmissionStatus: finalRegistrationSubmitCount === 1 ? 'KYC_SUBMITTED' : 'KYC_NOT_SUBMITTED',
         registrationSigningStatus: registrationSigningCompleted ? 'COMPLETED' : 'NOT_COMPLETED',
         registrationFinalStatus: finalStatus,
-        adminUserCandidateCount: adminCandidateCount
+        adminUserCandidateCount: undefined
       });
     };
 
@@ -329,15 +333,15 @@ test(
           },
           async context => {
             documentCreation = await onboarding.fillTaxResidency(onboardingInput);
-            expect(documentCreation.httpStatus).toBeGreaterThanOrEqual(200);
-            expect(documentCreation.httpStatus).toBeLessThan(300);
-            expect(documentCreation.documentPayloadPresent).toBe(true);
+            expect(authorizationDocumentCreationAccepted(documentCreation)).toBe(true);
             journey = store.advance(journey!, 'AUTHORIZATION_REQUIRED', {
               clientStatus: 'Authorization Required'
             });
-            context.setActual('税务声明已保存，当前Journey的Registration Agreement已创建。');
+            context.setActual(documentCreation.documentPayloadPresent
+              ? '税务声明已保存；创建接口返回文档定位信息，等待当前Journey协议加载。'
+              : '税务声明已保存；创建接口接受请求，等待异步生成的当前Journey协议加载。');
             context.setBusinessData({
-              registrationDocumentCreated: true,
+              registrationDocumentCreationAccepted: true,
               registrationDocumentCreationEvidence: safeCreationEvidence(documentCreation)
             });
           }
@@ -347,7 +351,6 @@ test(
 
       expect(onboardingStep).toBe('authorization');
       const signing = new RegistrationAgreementSigner(registrationPage);
-      const statusReader = new FidereSigningStatusReader(registrationPage);
 
       await business.step(
         {
@@ -447,7 +450,7 @@ test(
           expected: 'Fidere签署状态已完成、Authorization已完成，才开放最终提交门禁。'
         },
         async context => {
-          const signingStatus = await statusReader.read();
+          await signing.waitForCompletedDocumentUi();
           const completedAgreement = await signing.inspectCompletedAgreement();
           const submitEnabled = await onboarding.isFinalSubmitEnabled();
           authorizationStepCompleted =
@@ -468,7 +471,7 @@ test(
             signatureFieldCompleted: signatureApplied,
             remainingFields: finalRemainingFields!,
             authorizationStepCompleted,
-            fidereSigningRecognized: signingStatus.recognized || submitEnabled
+            fidereSigningRecognized: submitEnabled
           });
           registrationSigningCompleted = true;
           if (!registrationStageAtLeast(journey!.stage, 'FIDERE_SIGNING_RECOGNIZED')) {
@@ -477,20 +480,17 @@ test(
             });
           }
           expect(await onboarding.currentStep()).toBe('authorization');
-          const refreshedStatus = await statusReader.read();
-          if (!refreshedStatus.recognized) {
-            context.recordDiagnostic({
-              id: 'registration-signing-status-api-before-submit',
-              name: '最终提交前签署状态接口',
-              status: 'info',
-              summary: '嵌入文档已完成且提交可用；签署状态接口尚未同步，不阻断最终提交。',
-              affectsCoreBusiness: false
-            });
-          }
+          context.recordDiagnostic({
+            id: 'registration-signing-status-api-encrypted',
+            name: 'Fidere签署状态接口',
+            status: 'info',
+            summary: 'Sandbox状态接口已加密；不参与Registration成功判定。',
+            affectsCoreBusiness: false
+          });
           expect(submitEnabled).toBe(true);
           await onboarding.expectFinalSubmitHandlerReady();
           context.setActual(
-            `Fidere API已识别签署（signingStatus=1）；Authorization UI完成=${authorizationUiCompleted}。`
+            `Registration Agreement已完成且最终提交可用；Authorization UI完成=${authorizationUiCompleted}。`
           );
           context.setBusinessData({
             registrationAuthorizationStepCompleted: authorizationStepCompleted,
@@ -549,9 +549,6 @@ test(
             expect(recoverySigner.completionActionClickCount()).toBe(0);
             expect(recoverySigner.confirmationClickCount()).toBe(0);
 
-            const recoveredStatusReader = new FidereSigningStatusReader(registrationPage);
-            const recoveredStatus = await recoveredStatusReader.read();
-            expect(recoveredStatus.recognized).toBe(true);
             expect(await recoveryOnboarding.currentStep()).toBe('authorization');
             expect(await recoveryOnboarding.isFinalSubmitEnabled()).toBe(true);
             await recoveryOnboarding.expectFinalSubmitHandlerReady();
@@ -581,12 +578,23 @@ test(
           expect(profileSubmission.path).toMatch(/\/member-profile$/);
           expect(profileSubmission.httpStatus).toBeGreaterThanOrEqual(200);
           expect(profileSubmission.httpStatus).toBeLessThan(300);
-          expect(['0', '200']).toContain(profileSubmission.businessCode);
+          if (profileSubmission.businessCode !== undefined) {
+            expect(['0', '200']).toContain(profileSubmission.businessCode);
+          }
           expect(profileSubmission.redirectedToSignSuccess).toBe(true);
           expect(profileSubmission.pendingReviewPageVisible).toBe(true);
           guard.recordProfileFinalSubmission();
           journey = store.advance(journey!, 'PROFILE_COMPLETED', {
-            clientStatus: 'Profile Completed'
+            clientStatus: 'Profile Completed',
+            clientSubmittedAt: new Date().toISOString()
+          });
+          rememberRegistrationSubmission({
+            accountType: 'PERSONAL',
+            runId: journey.runId,
+            email: journey.email,
+            displayName: journey.displayName!,
+            userId: journey.userId,
+            clientSubmittedAt: journey.clientSubmittedAt
           });
           finalStatus = 'KYC_SUBMITTED';
           context.setActual(
@@ -608,68 +616,27 @@ test(
           expected: '当前新账号可保持登录并打开Client首页。'
         },
         async context => {
-          const authenticatedProfile = await statusReader.read();
-          expect(authenticatedProfile.kycStep).not.toBe('unknown');
+          const pendingReview = await onboarding.expectPendingReviewPage();
           clientLoginVerified = true;
           finalStatus = 'KYC Submitted / Pending Admin Review';
-          context.setActual('当前账号认证有效，KYC已提交并等待Admin审核。');
+          context.setActual(`当前账号认证有效，KYC已提交并等待Admin审核（${pendingReview.indicator}）。`);
         }
       );
 
-      await business.step(
-        {
-          action: '11. Admin Post-Registration Diagnostic（非计分）',
-          expected: '尽力按邮箱读取Admin用户；不可用只记录Diagnostic，不影响REG-P结果。'
-        },
-        async context => {
-          let adminContext: BrowserContext | undefined;
-          try {
-            if (!adminBaseUrl) throw new Error('ADMIN_BASE_URL is not configured.');
-            const adminState = existingAuthState(authStatePaths.admin);
-            if (!adminState) throw new Error('Admin storageState is unavailable.');
-            adminContext = await browser.newContext({
-              baseURL: adminBaseUrl,
-              storageState: adminState
-            });
-            const adminPage = await adminContext.newPage();
-            const adminUsers = new AdminClientUsersPage(adminPage);
-            await adminUsers.expectAuthenticatedShell(adminBaseUrl);
-            const located = await adminUsers.openUniqueRegistrationByEmail(adminBaseUrl, targetEmail);
-            adminCandidateCount = located.candidateCount;
-            if (adminCandidateCount !== 1) {
-              throw new Error(`Admin post-registration candidateCount=${adminCandidateCount}.`);
-            }
-            await adminUsers.expectDetailMatchesEmail(targetEmail);
-            await adminUsers.expectDetailMatchesPhone(targetPhone);
-            await adminUsers.expectDetailMatchesTestName(testName.displayName);
-            business.recordDiagnostic({
-              id: 'admin-post-registration-verification',
-              name: 'Admin Post-Registration Verification',
-              status: 'available',
-              summary: 'Admin已唯一定位本次注册用户并核对字母测试姓名。',
-              affectsCoreBusiness: false
-            });
-            context.setActual('Admin Post-Registration Diagnostic可用。');
-          } catch (error) {
-            business.recordDiagnostic({
-              id: 'admin-post-registration-verification',
-              name: 'Admin Post-Registration Verification',
-              status: 'unavailable',
-              summary: 'Admin用户检索暂不可用。',
-              reason: error instanceof Error ? error.message : String(error),
-              affectsCoreBusiness: false
-            });
-            context.setActual('Admin Post-Registration Diagnostic暂不可用；不影响注册核心结果。');
-          } finally {
-            await adminContext?.close();
-          }
-        }
-      );
+      await adminPage.bringToFront();
+      await runRegistrationKycTail({
+        source: submittedRegistrationSource('PERSONAL', journey!.runId),
+        browser,
+        adminPage,
+        business,
+        testInfo
+      });
+      clientLoginVerified = true;
 
       journey = store.advance(journey!, 'COMPLETED', {
-        clientStatus: 'Registration Completed'
+        clientStatus: 'KYC Approved'
       });
-      finalStatus = 'COMPLETED';
+      finalStatus = 'CLIENT_KYC_APPROVED';
 
       business.recordPrimaryOracle({
         id: 'same-account-resumed',

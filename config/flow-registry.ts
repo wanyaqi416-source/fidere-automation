@@ -284,7 +284,7 @@ export const FLOW_REGISTRY: readonly FlowDefinition[] = [
     id: 'trust-beneficiary-golden-journey', caseId: 'TRUST-BEN-002', name: '信托受益人完整闭环',
     module: '信托服务', priority: 'P0', scope: 'Client+Admin', type: 'E2E / Mutation / Resume', status: 'Ready',
     implemented: true, changesData: true, affectsMoney: false, requiresAdmin: true, requiresThirdParty: false,
-    npmScript: 'test:trust:beneficiary:client-create', safetySwitch: 'ALLOW_CLIENT_MUTATION_TESTS',
+    npmScript: 'test:trust:beneficiary', safetySwitch: 'ALLOW_CLIENT_MUTATION_TESTS',
     safetySwitches: ['ALLOW_CLIENT_MUTATION_TESTS', 'ALLOW_ADMIN_MUTATION_TESTS'],
     defaultRegression: false, moneyRegression: false, realE2EVerified: true,
     businessResult: 'Passed', automationResult: 'Passed', supportsResume: true, adminAction: 'Approve',
@@ -322,6 +322,19 @@ export const FLOW_REGISTRY: readonly FlowDefinition[] = [
       '安全密钥单次验证后真实TRF存在', 'Client真实TXN对应唯一Admin候选，详情匹配并审核通过一次',
       'Admin审核提交成功即流程完成，不再执行余额和双方流水校验'],
     description: '用户间转账以Admin审核提交成功为终点，直接PASS；不自动核验余额或双方流水。原40.11 USD订单已批准，禁止重复转账或批准。'
+  }),
+  defineFlow({
+    id: 'user-to-user-transfer-existing', caseId: 'U2U-006', name: '现有用户转账及管理端审核闭环',
+    module: '用户间转账', priority: 'P0', scope: 'Client+Admin', type: 'Money / Mutation', status: 'In Progress',
+    implemented: true, changesData: true, affectsMoney: true, requiresAdmin: true, requiresThirdParty: false,
+    requiresSecurityKey: true, supportsResume: true, orderIdPrefix: 'TRF', adminAction: 'Approve',
+    npmScript: 'test:u2u:existing', safetySwitch: 'ALLOW_MONEY_TESTS',
+    safetySwitches: ['ALLOW_MONEY_TESTS', 'ALLOW_CLIENT_MUTATION_TESTS', 'ALLOW_ADMIN_MUTATION_TESTS'],
+    defaultRegression: false, moneyRegression: true, realE2EVerified: false,
+    businessResult: 'Not Run', automationResult: 'Not Run', menuSection: '未实现流程', menuOrder: 35,
+    primaryOracles: ['发送方账号、KYC和资产资格正常且余额充足', 'Client页面按邮箱校验收款用户并生成唯一真实TRF/TXN',
+      '唯一Admin原订单、详情匹配且只批准一次', 'Admin审核提交成功即流程完成'],
+    description: '菜单6专用现有账号入口，不创建用户、不登录收款账号或调整手续费。Client按邮箱校验收款资格；唯一原订单Admin审批提交成功即PASS。'
   }),
   defineFlow({
     id: 'user-to-user-transfer-approve-resume', caseId: 'U2U-002-RESUME', name: '原用户间转账审核提交成功闭环',
@@ -745,8 +758,8 @@ export const FLOW_REGISTRY: readonly FlowDefinition[] = [
     },
     primaryOracles: [
       '安全密钥验证成功',
-      '转出和转入余额按成交结果变化',
-      '兑换历史状态、币种和金额与本次成交一致',
+      '唯一新增兑换流水真实存在',
+      '兑换历史与OTC详情的状态、币种和金额与本次成交一致',
       'TXN流水编号和OTC兑换订单编号均可从页面读取'
     ],
     secondaryOracles: ['安全脱敏的网络请求元信息', '非核心展示字段'],
@@ -2001,22 +2014,22 @@ export const FLOW_REGISTRY: readonly FlowDefinition[] = [
     module: '理财业务',
     priority: 'P1',
     scope: 'Client+Admin',
-    type: 'Money / Mutation / External Workflow',
-    status: 'Blocked',
-    implemented: false,
+    type: 'Money / Mutation',
+    status: 'Mutation Ready',
+    implemented: true,
     changesData: true,
     affectsMoney: true,
     requiresAdmin: true,
-    requiresThirdParty: true,
-    level: 'L5',
+    requiresThirdParty: false,
+    level: 'L4',
     requiresSecurityKey: true,
     clientAction: '提交理财赎回订单',
     adminAction: 'Approve',
-    npmScript: null,
+    npmScript: 'test:wealth:redeem:approve',
     safetySwitch: 'ALLOW_MONEY_TESTS',
     safetySwitches: ['ALLOW_MONEY_TESTS', 'ALLOW_ADMIN_MUTATION_TESTS'],
     defaultRegression: false,
-    moneyRegression: false,
+    moneyRegression: true,
     realE2EVerified: false,
     orderIdPrefix: 'INV',
     primaryOracles: [
@@ -2027,7 +2040,7 @@ export const FLOW_REGISTRY: readonly FlowDefinition[] = [
     secondaryOracles: ['通知记录', '预计到账日期展示', '非核心产品详情字段'],
     menuSection: '未实现流程',
     menuOrder: 31,
-    description: '当前账号没有页面可见且处于赎回窗口的持仓；禁止伪造测试数据或执行真实赎回。'
+    description: '菜单11 Standalone Runner已实现；只接受页面唯一可赎回持仓，真实执行结果确认前保持Mutation Ready。'
   })
 ] as const;
 

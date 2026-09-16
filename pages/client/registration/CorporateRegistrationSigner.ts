@@ -40,7 +40,9 @@ export class CorporateRegistrationSigner {
   private readonly embeddedSigner: RegistrationAgreementSigner;
 
   constructor(readonly page: Page) {
-    this.embeddedSigner = new RegistrationAgreementSigner(page);
+    this.embeddedSigner = new RegistrationAgreementSigner(page, {
+      personalRegistrationEnhancements: false
+    });
   }
 
   async open(expectedSignerName: string): Promise<CorporateSigningInspection> {

@@ -5,7 +5,6 @@ import { RegistrationAgreementSigner } from '../../../pages/client/registration/
 import { expect, test } from '../../../fixtures/registration.fixture';
 import { env } from '../../../src/config/env';
 import {
-  FidereSigningStatusReader,
   PersonalJourneyContextStore,
   registrationTestNameForSequence
 } from '../../../src/registration';
@@ -47,7 +46,6 @@ test(
     await signer.open(testName.displayName);
     const completed = await signer.inspectCompletedAgreement();
     const readiness = await onboarding.inspectFinalSubmitReadiness();
-    const status = await new FidereSigningStatusReader(registrationPage).read();
     const button = onboarding.submitButton;
     const buttonState = await button.evaluate(element => {
       const value = element as HTMLButtonElement;
@@ -60,6 +58,54 @@ test(
         formMethod: value.form?.method ?? null
       };
     });
+    const reactHandlers = await button.evaluate(element => {
+      const readHandler = (target: Element | null, name: string) => {
+        if (!target) return undefined;
+        const record = target as unknown as Record<string, unknown>;
+        for (const key of Object.keys(record)) {
+          if (!key.startsWith('__reactProps$')) continue;
+          const props = record[key];
+          if (typeof props !== 'object' || props === null) continue;
+          const handler = (props as Record<string, unknown>)[name];
+          if (typeof handler === 'function') return String(handler).slice(0, 4_000);
+        }
+        return undefined;
+      };
+      const value = element as HTMLButtonElement;
+      return {
+        onClick: readHandler(value, 'onClick'),
+        onSubmit: readHandler(value.form, 'onSubmit')
+      };
+    });
+    const bundleGuards: Array<{ script: string; needle: string; snippet: string }> = [];
+    const declaredScriptUrls = await registrationPage.locator('script[src]').evaluateAll(nodes =>
+      nodes.map(node => (node as HTMLScriptElement).src).filter(Boolean)
+    );
+    const loadedScriptUrls = await registrationPage.evaluate(() =>
+      performance.getEntriesByType('resource')
+        .map(entry => entry.name)
+        .filter(url => /\.js(?:$|\?)/i.test(url))
+    );
+    const scriptUrls = [...new Set([...declaredScriptUrls, ...loadedScriptUrls])];
+    for (const scriptUrl of scriptUrls) {
+      if (new URL(scriptUrl).origin !== new URL(registrationPage.url()).origin) continue;
+      const response = await registrationPage.request.get(scriptUrl);
+      if (!response.ok()) continue;
+      const source = await response.text();
+      for (const needle of [
+        'member-profile',
+        'client_authorization_status',
+        'authorization_status'
+      ]) {
+        const index = source.indexOf(needle);
+        if (index < 0) continue;
+        bundleGuards.push({
+          script: new URL(scriptUrl).pathname,
+          needle,
+          snippet: source.slice(Math.max(0, index - 1_500), index + 1_500)
+        });
+      }
+    }
     const alerts: string[] = [];
     for (const alert of await registrationPage.getByRole('alert').all()) {
       if (!await alert.isVisible()) continue;
@@ -73,9 +119,11 @@ test(
       finalSubmitHandlerReady: await onboarding.isFinalSubmitHandlerReady(),
       readiness,
       buttonState,
-      kycStep: status.kycStep,
-      kycStepStatus: status.kycStepStatus,
-      signingStatus: status.clientSigningStatus,
+      reactHandlers,
+      bundleGuards,
+      kycStep: 'Not queried',
+      kycStepStatus: 'Sandbox endpoint is encrypted',
+      signingStatus: 'Verified by completed document and final-submit readiness',
       visibleAlerts: alerts
     };
     console.log(`REG-P final Submit preflight: ${JSON.stringify(evidence)}`);

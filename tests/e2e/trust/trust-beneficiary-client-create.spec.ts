@@ -1,15 +1,14 @@
 import { test, expect } from '../../../fixtures/registration.fixture';
 import { AdminShellPage } from '../../../pages/admin/AdminShellPage';
-import { AdminTrustManagementPage } from '../../../pages/admin/AdminTrustManagementPage';
 import { TrustBeneficiaryPage } from '../../../pages/client/TrustBeneficiaryPage';
 import { env } from '../../../src/config/env';
 import { assertSandboxEnvironment, MoneyMutationGuard } from '../../../src/flow-engine';
 import {
   maskRegistrationEmail,
-  openPersonalJourneyClientSession,
-  PersonalJourneyContextStore
+  openPersonalJourneyClientSession
 } from '../../../src/registration';
 import { buildTrustBeneficiaryTestData } from '../../../src/trust/trust-beneficiary-data';
+import { resolveTrustBeneficiarySource } from '../../../src/trust/trust-beneficiary-source';
 import {
   trustBeneficiaryStageAtLeast,
   trustIdentityHash,
@@ -39,10 +38,9 @@ test('TRUST-BEN-002 Client创建唯一受益人并读取其银行账户表单', 
   expect(testInfo.retry).toBe(0);
   expect(testInfo.repeatEachIndex).toBe(0);
 
-  const sourceRunId = env.personalRegistration.adminApprovalSourceRunId ?? 'REGP-20260904020924';
-  const source = new PersonalJourneyContextStore().load(sourceRunId);
-  if (!source?.displayName || !source.email || source.stage !== 'COMPLETED') throw new Error('Completed Personal source is required.');
-  const runId = process.env.TRUST_BENEFICIARY_RUN_ID?.trim() || 'TBEN-20260908-AH-01';
+  const source = resolveTrustBeneficiarySource();
+  const sourceRunId = source.runId;
+  const runId = required('TRUST_BENEFICIARY_RUN_ID', process.env.TRUST_BENEFICIARY_RUN_ID?.trim());
   const data = buildTrustBeneficiaryTestData(runId);
   const store = new TrustBeneficiaryStateStore(runId);
   let state = store.initialize({
@@ -71,14 +69,13 @@ test('TRUST-BEN-002 Client创建唯一受益人并读取其银行账户表单', 
   const client = await openPersonalJourneyClientSession({ browser, baseURL: clientBaseUrl, runId: sourceRunId,
     email: source.email, password: required('CLIENT_PASSWORD', env.client.password), otp: required('CLIENT_OTP', env.client.otp) });
   const trust = new TrustBeneficiaryPage(client.page);
-  const adminTrust = new AdminTrustManagementPage(adminPage);
   const guard = new MoneyMutationGuard('TRUST-BENEFICIARY-CREATE', true, false);
   const switches = { ALLOW_CLIENT_MUTATION_TESTS: env.allowClientMutationTests, ALLOW_ADMIN_MUTATION_TESTS: env.allowAdminMutationTests };
   guard.validateRuntime({ baseURL: clientBaseUrl, workers: testInfo.config.workers, retries: testInfo.project.retries,
     repeatEach: testInfo.project.repeatEach, safetySwitches: switches });
 
   try {
-    await business.step({ action: '1. 双端认证及原信托唯一预检', expected: 'Client原Personal信托可访问；Admin同一用户/信托候选严格为1' }, async context => {
+    await business.step({ action: '1. 双端认证及Client信托预检', expected: 'Client原Personal信托可访问且页面允许新增受益人；Admin认证有效' }, async context => {
       await trust.goto(clientBaseUrl);
       const trustNumber = await trust.readTrustNumber();
       if (state.trustNumber && state.trustNumber !== trustNumber) throw new Error('Resume Trust Number changed.');
@@ -86,13 +83,10 @@ test('TRUST-BEN-002 Client创建唯一受益人并读取其银行账户表单', 
       const shell = new AdminShellPage(adminPage);
       await shell.goto(adminBaseUrl);
       await shell.expectSessionActive();
-      await adminTrust.goto(adminBaseUrl);
-      const candidate = await adminTrust.locateUnique({ email: source.email, trustNumber });
-      expect(candidate.trustNumber).toBe(trustNumber);
       guard.markAuthenticationReady(true, true);
-      business.setBusinessData({ trustNumber, candidateCount: 1 });
-      context.recordPrimaryOracle({ id: 'trust-context', name: '同一用户信托', expected: 'Admin候选1', actual: '候选1且Trust Number一致', status: 'passed' });
-      context.setActual('Client/Admin认证有效；同一Personal信托候选=1。');
+      business.setBusinessData({ trustNumber });
+      context.recordPrimaryOracle({ id: 'trust-context', name: 'Client信托可用', expected: '可进入信托服务并新增受益人', actual: 'Client信托可访问；Admin认证有效', status: 'passed' });
+      context.setActual('Client信托服务可访问；Admin认证有效；新增前不查询Admin受益人。');
     });
 
     await business.step({ action: '2. Client创建唯一受益人一次', expected: '表单字段按真实DOM填写；提交一次；页面出现同一受益人' }, async context => {

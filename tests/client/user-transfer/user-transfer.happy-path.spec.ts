@@ -11,6 +11,7 @@ import { formatU2uBalance } from '../../../src/user-transfer/u2u-summary';
 import { loginU2uParticipant, readU2uBalance, verifyU2uIdentity } from '../../../src/user-transfer/u2u-participant';
 import { assertU2uFreshAllowed, participantHash, saveU2uEvidence, U2U_FLOW_ID, type U2uEvidence } from '../../../src/user-transfer/u2u-evidence';
 import { getFlowDefinition } from '../../../config/flow-registry';
+import { requireU2uRecipient } from '../../../src/utils/runtime-email';
 
 test.describe.configure({ mode: 'serial', retries: 0 });
 test.use({ trace: 'off', screenshot: 'off', video: 'off' });
@@ -19,11 +20,11 @@ test.skip(!env.exchange.allowMoneyTests || !env.allowClientMutationTests, 'U2U r
 test('U2U-002 用户间转账完整闭环', { tag: ['@client', '@u2u', '@money', '@mutation'] }, async ({ page, browser, baseURL, business }, testInfo) => {
   test.setTimeout(300_000);
   business.flow(U2U_FLOW_ID);
+  const sender = env.client.username!;
+  const recipient = requireU2uRecipient(sender, process.env.U2U_RECIPIENT_EMAIL ?? process.env.U2U_DEFAULT_RECIPIENT_EMAIL);
   if (getFlowDefinition(U2U_FLOW_ID).requiresAdmin) {
     throw new Error('U2U requires Admin approval. Resume the existing TRF via Admin; this former direct-completion fresh command is disabled.');
   }
-  const sender = env.client.username!;
-  const recipient = process.env.U2U_RECIPIENT_EMAIL!;
   const runId = process.env.U2U_RUN_ID!;
   const currency = process.env.U2U_CURRENCY!;
   const account = process.env.U2U_SOURCE_ACCOUNT_TYPE!;
@@ -156,7 +157,7 @@ test('U2U-002 用户间转账完整闭环', { tag: ['@client', '@u2u', '@money',
         adminMutationClicks: 0, networkObservations: evidence.network, transferOrderId: evidence.orderId });
       await testInfo.attach('u2u-safe-execution-evidence', { body: Buffer.from(JSON.stringify({ runId,
         amount, currency, fee: evidence.fee, expectedCredit: evidence.expectedCredit,
-        senderBefore: formatU2uBalance(evidence.senderBefore), recipientBefore: formatU2uBalance(evidence.recipientBefore),
+        senderBefore: formatU2uBalance(evidence.senderBefore), recipientBefore: formatU2uBalance(evidence.recipientBefore!),
         confirmationClicks: evidence.confirmationClicks, verificationClicks: evidence.verificationClicks,
         requestCount: evidence.requestCount, network: evidence.network, resumeStage: state.stage })), contentType: 'application/json' });
     }

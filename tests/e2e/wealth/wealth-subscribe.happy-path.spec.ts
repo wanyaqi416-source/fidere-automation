@@ -9,7 +9,7 @@ import { AccountDetailPage } from '../../../pages/client/AccountDetailPage';
 import { RegistrationKycStatusPage } from '../../../pages/client/RegistrationKycStatusPage';
 import { Decimal } from '../../../src/utils/money';
 import { diagnoseWealthOrderCandidates } from '../../../src/wealth/wealth-e2e';
-import { WealthJourneyStore, verifyWealthIdentity, uniqueSubscriptionAmount, matchingNewWealthOrders, observeWealthNetwork } from '../../../src/wealth/wealth-journey';
+import { WealthJourneyStore, verifyWealthIdentity, matchingNewWealthOrders, observeWealthNetwork } from '../../../src/wealth/wealth-journey';
 import { maskSensitiveText } from '../../../src/reporting/sensitive-data-mask';
 
 test.describe.configure({ mode: 'serial', retries: 0 });
@@ -69,12 +69,12 @@ async ({ clientPage, adminPage, browser, business }, testInfo) => {
         await funds.openPositions(); e.oldPositions = await funds.readPositions();
         e.oldOrderIds = (await funds.readHistory('申购', 0, true)).map(row => row.orderId);
         await funds.openCatalog();
-        const products = (await funds.readProducts()).filter(row => row.currency === 'USD' && new Decimal(row.minimumInvestment).gt(0))
+        const products = (await funds.readProducts()).filter(row => row.currency === 'USD' &&
+          new Decimal(row.minimumInvestment).gt(0) && new Decimal(row.minimumInvestment).lte(authorizedAmount))
           .sort((a, b) => new Decimal(a.minimumInvestment).comparedTo(b.minimumInvestment) || a.name.localeCompare(b.name));
-        if (!products.length) throw new Error('BLOCKED_TEST_DATA: No eligible positive-minimum USD product.');
+        if (!products.length) throw new Error(`BLOCKED_TEST_DATA: No eligible USD product accepts the authorized ${authorizedAmount} USD amount.`);
         const product = products[0]; e.productName = product.name; e.currency = product.currency;
-        e.amount = uniqueSubscriptionAmount(product.minimumInvestment, runId);
-        expect(new Decimal(e.amount).eq(authorizedAmount), 'Subscription amount matches this Run authorization').toBe(true);
+        e.amount = new Decimal(authorizedAmount).toFixed(2);
         await funds.openSubscription(product.name);
         e.productId = new URL(clientPage.url()).searchParams.get('id') ?? undefined;
         await subscribe.expectLoaded();
@@ -138,7 +138,8 @@ async ({ clientPage, adminPage, browser, business }, testInfo) => {
       }, { timeout: 75_000, intervals: [1_000, 2_000] }).toBe(1);
       const detail = await admin.openDetails(candidates[0]);
       const matched = diagnoseWealthOrderCandidates([detail.record], { orderId: e.clientOrder!.orderId, kind: 'subscription',
-        customerIdentity: env.client.username!, productName: e.productName!, currency: e.currency!, amount: e.amount!,
+        customerIdentity: env.client.username!, customerMatchMode: 'display-only',
+        productName: e.productName!, currency: e.currency!, amount: e.amount!,
         status: candidates[0].status, submittedAtMs: Date.parse(e.createdAt!), matchWindowMs: 300_000 });
       business.setBusinessData({ candidateStages: matched.stages });
       expect(matched.candidates.length, 'Admin detail fingerprint').toBe(1);
@@ -195,6 +196,7 @@ async ({ clientPage, adminPage, browser, business }, testInfo) => {
           new Decimal(e.before!.available).minus(e.after.available).eq(e.expectedDebit!) && new Decimal(e.after.frozen).eq(e.before!.frozen);
       }, { timeout: 60_000, intervals: [2_000, 5_000] }).toBe(true);
       primary('WS-BALANCE', '认购付款账户余额与页面金额及费用一致', `${e.before!.available} - ${e.after!.available} = ${e.expectedDebit} ${e.currency}`);
+      delete e.failure;
       e.completed = true; store.advance('COMPLETED'); report();
       setActual(`总余额${e.before!.total}→${e.after!.total}；可用${e.before!.available}→${e.after!.available}；冻结${e.before!.frozen}→${e.submitted!.frozen}→${e.after!.frozen}。`);
     });

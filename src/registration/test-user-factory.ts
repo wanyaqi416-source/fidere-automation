@@ -3,6 +3,7 @@ import {
   type RegistrationPoolEntry
 } from './personal-registration-data';
 import { PersonalJourneyContextStore } from './personal-registration-state';
+import { requireRegistrationEmail } from '../utils/runtime-email';
 import {
   RegistrationSequenceStore,
   type RegistrationTestName
@@ -47,6 +48,7 @@ export class TestUserFactory {
   }
 
   previewFreshIdentity(emailOverride?: string): FreshPersonalIdentityPreview | undefined {
+    emailOverride = requireRegistrationEmail(emailOverride);
     const candidate = this.pool.peekAvailable(emailOverride) ?? this.generateAvailableIdentity(emailOverride);
     if (!candidate) return undefined;
     this.assertJourneyIsFresh(candidate.email);
@@ -58,6 +60,7 @@ export class TestUserFactory {
     expectedEntryId: string,
     emailOverride?: string
   ): FreshPersonalTestIdentity {
+    emailOverride = requireRegistrationEmail(emailOverride);
     const candidate = this.pool.peekAvailable(emailOverride) ?? this.generateAvailableIdentity(emailOverride);
     if (!candidate || candidate.id !== expectedEntryId) {
       throw new Error('The preflighted Sandbox registration identity is no longer available.');
@@ -88,16 +91,15 @@ export class TestUserFactory {
   }
 
   private canGenerateIdentity(): boolean {
-    const domain = this.generation.emailDomain?.trim().toLowerCase();
     const prefix = this.generation.phonePrefix?.replace(/\D/g, '');
-    return Boolean(domain && /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(domain) && prefix && /^1\d{2,9}$/.test(prefix));
+    return Boolean(prefix && /^1\d{2,9}$/.test(prefix));
   }
 
   private generateAvailableIdentity(emailOverride?: string): RegistrationPoolEntry | undefined {
+    const email = requireRegistrationEmail(emailOverride);
     if (!this.canGenerateIdentity()) return undefined;
     const sequence = this.sequenceStore.nextSequence();
     const suffix = String(sequence).padStart(6, '0');
-    const domain = this.generation.emailDomain!.trim().toLowerCase();
     const prefix = this.generation.phonePrefix!.replace(/\D/g, '');
     const remainingDigits = 11 - prefix.length;
     if (remainingDigits < 1 || sequence >= 10 ** remainingDigits) {
@@ -105,12 +107,11 @@ export class TestUserFactory {
     }
     const entry = this.pool.addAvailable({
       id: `golden-personal-${suffix}`,
-      email: `golden-regp-${suffix}@${domain}`,
+      email,
       phone: `${prefix}${String(sequence).padStart(remainingDigits, '0')}`,
       sandboxOnly: true
     });
-    if (!emailOverride) return entry;
-    return this.pool.peekAvailable(emailOverride);
+    return entry;
   }
 
   private identity(entry: RegistrationPoolEntry): FreshPersonalIdentityPreview {

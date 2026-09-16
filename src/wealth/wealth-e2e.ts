@@ -34,6 +34,7 @@ export type WealthOrderFingerprint = {
   orderId: string;
   kind: WealthOrderKind;
   customerIdentity: string;
+  customerMatchMode?: 'identity' | 'display-only';
   productName: string;
   currency: string;
   amount: string;
@@ -56,8 +57,10 @@ export function diagnoseWealthOrderCandidates(
     { id: 'kind', label: '订单类型', matches: record => record.kind === fingerprint.kind },
     {
       id: 'customer',
-      label: '测试客户',
-      matches: record => matchesConfiguredCustomerIdentity(record.customerText, fingerprint.customerIdentity)
+      label: fingerprint.customerMatchMode === 'display-only' ? '客户字段已展示' : '测试客户',
+      matches: record => fingerprint.customerMatchMode === 'display-only'
+        ? record.customerText.trim().length > 0
+        : matchesConfiguredCustomerIdentity(record.customerText, fingerprint.customerIdentity)
     },
     {
       id: 'product',

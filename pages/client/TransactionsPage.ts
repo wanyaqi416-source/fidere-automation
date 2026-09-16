@@ -163,9 +163,16 @@ export class TransactionsPage {
   }
 
   async selectTransferType(): Promise<void> {
+    const responsePromise = this.page.waitForResponse(
+      response => new URL(response.url()).pathname === '/api/get-activitys-table',
+      { timeout: 20_000 }
+    );
     await this.typeFilterButton.click();
     await this.page.getByRole('menuitem', { name: '转账', exact: true }).click();
+    const response = await responsePromise;
+    expect(response.ok(), 'Client transfer history query succeeded').toBe(true);
     await expect(this.typeFilterButton).toContainText('转账');
+    await this.waitForHistoryReady();
   }
 
   async selectDepositType(): Promise<void> {
@@ -328,7 +335,7 @@ export class TransactionsPage {
     const rowSnapshots = await this.table.getByRole('row').evaluateAll(rows =>
       rows.map(row =>
         Array.from(row.querySelectorAll('td')).map(cell =>
-          (cell.textContent ?? '').trim().replace(/\s+/g, ' ')
+          cell.innerText.trim().replace(/\s+/g, ' ')
         )
       )
     );
@@ -574,7 +581,7 @@ export class TransactionsPage {
     fromCurrency: string,
     toCurrency: string
   ): Promise<string[]> {
-    await expect(this.table).toBeVisible();
+    await this.waitForHistoryReady();
     const recordIds: string[] = [];
 
     for (const row of await this.exchangeRows(fromCurrency, toCurrency).all()) {
@@ -591,6 +598,7 @@ export class TransactionsPage {
   async findExchangeRecords(
     criteria: ExchangeRecordCriteria
   ): Promise<ExchangeTransactionRecord[]> {
+    await this.waitForHistoryReady();
     const records: ExchangeTransactionRecord[] = [];
     const expectedPair = compact(`兑换${criteria.fromCurrency} → ${criteria.toCurrency}`);
     const expectedReceivedAmount = compact(`${criteria.receivedAmount} ${criteria.toCurrency}`);
@@ -653,5 +661,10 @@ export class TransactionsPage {
     const detailDrawer = new ExchangeDetailDrawer(this.page);
     await detailDrawer.waitForOpen();
     return detailDrawer;
+  }
+
+  private async waitForHistoryReady(): Promise<void> {
+    await expect(this.table).toBeVisible();
+    await expect(this.page.getByText('加载中...', { exact: true })).toBeHidden({ timeout: 20_000 });
   }
 }

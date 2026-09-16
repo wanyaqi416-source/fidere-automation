@@ -97,9 +97,10 @@ export function uniqueSubscriptionAmount(minimum: string, runId: string): string
 
 export function matchingNewWealthOrders(records: WealthHistoryRecord[], evidence: WealthJourneyEvidence) {
   const submitted = Date.parse(evidence.createdAt ?? '');
+  const account = evidence.kind === 'redemption' ? evidence.settlementAccount : evidence.purchaseAccount;
   return records.filter(row => !evidence.oldOrderIds.includes(row.orderId) && row.productName === evidence.productName &&
     row.currency === evidence.currency && new Decimal(row.amount).eq(evidence.amount!) &&
-    (!evidence.purchaseAccount || row.purchaseAccount === evidence.purchaseAccount) &&
+    (!account || row.purchaseAccount === account) &&
     Number.isFinite(submitted) && Math.abs(Date.parse(row.createdAt.replace(/\//g, '-')) - submitted) <= 300_000);
 }
 

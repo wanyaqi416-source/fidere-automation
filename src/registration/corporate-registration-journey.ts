@@ -3,6 +3,7 @@ import { dirname, resolve } from 'node:path';
 
 import { isKnownDuplicateSandboxPhone, normalizeEmail, normalizePhone } from './personal-registration-data';
 import { toAlphabeticSuffix } from './registration-sequence';
+import { requireRegistrationEmail } from '../utils/runtime-email';
 
 export const CORPORATE_REGISTRATION_STAGES = [
   'PREPARED',
@@ -118,12 +119,7 @@ function identityFor(
 ) {
   const nameSuffix = toAlphabeticSuffix(sequence);
   const timestamp = now.toISOString().replace(/\D/g, '').slice(2, 14);
-  const email = normalizeEmail(
-    emailOverride ?? `regc.${nameSuffix.toLowerCase()}.${timestamp}@sandbox.fidere.test`
-  );
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    throw new Error('CORPORATE_REGISTRATION_EMAIL is not a valid email address.');
-  }
+  const email = requireRegistrationEmail(emailOverride);
   if (users.some(user => normalizeEmail(user.email) === email)) {
     throw new Error('Corporate registration email already exists in the local registry.');
   }
@@ -196,6 +192,7 @@ export class CorporateRegistrationJourneyStore {
     phoneOverride?: string,
     options: { archiveIncomplete?: boolean; companyName?: string } = {}
   ): CorporateRegistrationJourney {
+    emailOverride = requireRegistrationEmail(emailOverride);
     const existing = this.load();
     if (existing && existing.stage !== 'COMPLETED' && !options.archiveIncomplete) {
       throw new Error(`REG-C-002 already has Journey ${existing.runId}; resume it instead of creating another account.`);

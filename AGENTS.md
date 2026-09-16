@@ -4,7 +4,7 @@ Read this file before changing or adding a Flow.
 
 ## Safety
 
-- Run money and mutation tests only after explicit user authorization for one named Run.
+- Run money and mutation tests only after explicit user authorization for one named Run. Selecting a specific Flow in the interactive Launcher and entering `Y` after the Launcher displays that Run is the explicit authorization for that one execution; do not require a second authorization in chat.
 - Never retry, repeat, parallelize, or automatically rerun a money Flow. L4 uses `workers=1`, `retries=0`, and `repeatEach=1`.
 - Keep `ALLOW_MONEY_TESTS=false` and `ALLOW_ADMIN_MUTATION_TESTS=false` in `.env`. A command may inherit temporary process values; code and menus must not edit `.env`.
 - Reject production and unknown hosts. Mutation is allowed only on a recognized Sandbox, Staging, local, or `.test` host.
@@ -43,6 +43,7 @@ Read this file before changing or adding a Flow.
 
 - Configure staged business fingerprint fields per domain; do not force every Flow to use the same fields.
 - Admin fiat deposit claiming has no TXN column. Match its real customer/account/currency/exact amount/channel/status/submission-time fields; an Admin bank reference is not a Client TXN. Read-only Admin investigation must work even when the Client TXN is unavailable. Never infer identifier mappings, resubmit a deposit, or turn investigation evidence into approval/rejection success.
+- Deposit claiming determines PERSONAL/BUSINESS from the unique email-matched Admin user-management row's application type (申请类型), not the Client session type. Read the same user's detail: BUSINESS matches entity name (主体名称) to payer (付款人); PERSONAL matches first name plus last name (名 + 姓) to matched customer (匹配客户), never to payer. Use the same branch in candidate filtering and claim-detail verification. Preserve email/user-ID identity and exact account, currency, amount, channel, status and time checks.
 - Record candidate count after every stage in the business report.
 - `candidateCount` must equal exactly `1` before opening a mutation path.
 - Never select the first/latest row or match only by amount, user, or time.
@@ -64,6 +65,8 @@ Read this file before changing or adding a Flow.
 - Reserve `HARD_STOP` for ambiguous or irreversible boundaries: an uncertain Client submission, Security Key verification, Admin approve/reject, final third-party signing, existing business order, conflicting balance/state evidence, or `candidateCount != 1` before Admin mutation.
 
 ## Oracle And Outcomes
+
+- The menu-6 existing-account U2U runner (`user-to-user-transfer-existing`) additionally requires Sender debit, Recipient credit and both original-order ledgers, per the current execution contract. Historical approval-only Resume flows keep their original success model below. The new runner reuses the original U2U state namespace so changing entry points cannot evade duplicate prevention.
 
 - User-to-User Transfer ends successfully when the original unique Admin order's approval submission succeeds. Advance directly from `ADMIN_ACTION_DONE` to `COMPLETED` and report `PASS`. Do not run Sender/Recipient balance or ledger reconciliation as an automatic tail, Primary/Secondary Oracle, warning, or manual-review gate. Keep pre-approval uniqueness, detail matching, explicit authorization and single-click protection. Completion here means approval success, not a claim that settlement was independently verified.
 

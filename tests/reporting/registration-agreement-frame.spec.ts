@@ -3,6 +3,28 @@ import { expect, test } from '@playwright/test';
 import { RegistrationAgreementSigner } from '../../pages/client/registration/RegistrationAgreementSigner';
 
 test.describe('Registration completed iframe @readonly @L2', () => {
+  test('waits for an asynchronously created current agreement iframe', async ({ page }) => {
+    await page.route('https://sandbox.fidere.test/**', route => route.fulfill({
+      contentType: 'text/html',
+      body: new URL(route.request().url()).pathname === '/registration'
+        ? `<h1>Authorization</h1><script>
+            setTimeout(() => {
+              const frame = document.createElement('iframe');
+              frame.src = '/agreement';
+              document.body.appendChild(frame);
+            }, 750);
+          </script>`
+        : '<h3>Document Completed!</h3><img alt="signature">'
+    }));
+    await page.goto('https://sandbox.fidere.test/registration');
+
+    const signer = new RegistrationAgreementSigner(page);
+    const inspection = await signer.open('TEST SANDBOX AI');
+
+    expect(inspection.documentBelongsToTestUser).toBe(true);
+    expect(inspection.initialRemainingFields).toBe(0);
+  });
+
   for (const replaceFrame of [false, true]) {
     test(`reads completion with iframe replacement=${replaceFrame}`, async ({ page }) => {
       await page.route('https://sandbox.fidere.test/**', route => route.fulfill({

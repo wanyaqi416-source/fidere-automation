@@ -32,7 +32,7 @@ test('U2U-005 原订单审核提交结果只读核查', { tag: ['@readonly', '@r
   business.setBusinessData({ runId, transferOrderId: evidence.orderId, adminTransactionId: evidence.senderLedgerId,
     transferAmount: evidence.amount, transferCurrency: evidence.currency, fee: evidence.fee,
     expectedReceivedAmount: evidence.expectedCredit, sourceBalanceBefore: formatU2uBalance(evidence.senderBefore),
-    targetBalanceBefore: formatU2uBalance(evidence.recipientBefore), adminMutationClicks: 0, createdOrderCount: 0,
+    targetBalanceBefore: formatU2uBalance(evidence.recipientBefore!), adminMutationClicks: 0, createdOrderCount: 0,
     confirmationClicks: 0, securityVerificationClicks: 0 });
   await business.step({ action: '只读查询已点击批准的原TXN', expected: '原TXN唯一，双方、方向、USD、金额、费用、到账匹配，Admin状态已批准；不点击任何审核动作' }, async ({ setActual }) => {
     const list = new TransferListPage(adminPage);

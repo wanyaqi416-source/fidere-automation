@@ -152,7 +152,8 @@ async ({ clientPage, adminPage, browser, business }, testInfo) => {
       }, { timeout: 75_000, intervals: [1_000, 3_000] }).toBe(1);
       const detail = await admin.openDetails(candidates[0]);
       const match = diagnoseWealthOrderCandidates([detail.record], { orderId: e.clientOrder!.orderId, kind: 'subscription',
-        customerIdentity: env.client.username!, productName: e.productName!, currency: e.currency!, amount: e.amount!,
+        customerIdentity: env.client.username!, customerMatchMode: 'display-only',
+        productName: e.productName!, currency: e.currency!, amount: e.amount!,
         status: candidates[0].status, submittedAtMs: Date.parse(e.createdAt!), matchWindowMs: 300_000 });
       business.setBusinessData({ candidateStages: match.stages });
       expect(match.candidates).toHaveLength(1); expect(detail.account).toBe(e.purchaseAccount);

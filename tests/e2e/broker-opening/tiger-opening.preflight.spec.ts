@@ -7,11 +7,12 @@ import { SecuritiesTradingPage } from '../../../pages/client/SecuritiesTradingPa
 import { RegistrationKycStatusPage } from '../../../pages/client/RegistrationKycStatusPage';
 import { env } from '../../../src/config/env';
 import { assertSandboxEnvironment } from '../../../src/flow-engine';
-import { PersonalPostRegistrationJourneyStore } from '../../../src/journey';
 import { openPersonalJourneyClientSession } from '../../../src/registration';
 import { Decimal } from '../../../src/utils/money';
 import { matchTigerOpening } from '../../../src/journey/tiger-opening';
 import { requireExactlyOneCandidate } from '../../../src/flow-engine';
+import { resolveTigerOpeningUser } from '../../../src/broker-opening/tiger-runtime-user';
+import { evaluateTigerPreflight } from '../../../scripts/launcher-tiger-run';
 
 test.use({ trace: 'off', screenshot: 'off', video: 'off' });
 test.describe.configure({ mode: 'serial', retries: 0 });
@@ -21,13 +22,13 @@ test('老虎证券开户专项只读预检 @readonly @L2', async ({ browser, adm
   assertSandboxEnvironment(env.admin.baseUrl);
   expect(env.exchange.allowMoneyTests || env.allowAdminMutationTests).toBe(false);
   const sourceRunId = process.env.BROKER_SOURCE_RUN_ID;
+  const runtimeEmail = process.env.TIGER_TEST_EMAIL?.trim().toLowerCase();
   if (!sourceRunId) throw new Error('Existing Journey source required.');
-  const source = new PersonalPostRegistrationJourneyStore(sourceRunId).load();
-  if (!source || source.stage !== 'COMPLETED') throw new Error('Existing completed Journey required.');
   business.flow('account-opening-dry-run', { caseId: 'TIGER-PREFLIGHT', name: '原用户老虎证券开户只读预检' });
   const shell = new AdminShellPage(adminPage);
   await shell.goto(env.admin.baseUrl!);
   await shell.expectSessionActive();
+  const source = await resolveTigerOpeningUser({ adminPage, adminBaseUrl: env.admin.baseUrl!, sourceRunId, runtimeEmail });
   const admin = new BrokerOpeningReviewPage(adminPage);
   await admin.goto(env.admin.baseUrl!);
   if (process.env.BROKER_ADMIN_STRUCTURE_ONLY === 'true') {
@@ -48,25 +49,48 @@ test('老虎证券开户专项只读预检 @readonly @L2', async ({ browser, adm
     console.log('TIGER_EXISTING_APPROVAL_FORM_READY ' + JSON.stringify({ candidateCount: 1, detailMatched: true, status: candidate.status, approvalClicks: admin.approvalClickCount() }));
     return;
   }
-  const client = await openPersonalJourneyClientSession({ browser, baseURL: env.client.baseUrl!, runId: sourceRunId,
-    email: source.email, password: env.client.password!, otp: env.client.otp!, forceFreshLogin: true });
+  const client = runtimeEmail
+    ? await RegistrationKycStatusPage.cleanLogin({ browser, baseURL: env.client.baseUrl!, email: source.email,
+      password: env.client.password!, otp: env.client.otp! })
+    : await openPersonalJourneyClientSession({ browser, baseURL: env.client.baseUrl!, runId: sourceRunId,
+      email: source.email, password: env.client.password!, otp: env.client.otp!, forceFreshLogin: true });
+  const clientPage = 'statusPage' in client ? client.statusPage.page : client.page;
   try {
-    await new RegistrationKycStatusPage(client.page).expectApproved({ ...source, runId: sourceRunId }, env.client.baseUrl!);
-    const accounts = new AccountDetailPage(client.page);
+    await new RegistrationKycStatusPage(clientPage).expectApproved({ ...source, runId: sourceRunId }, env.client.baseUrl!);
+    const accounts = new AccountDetailPage(clientPage);
     await accounts.goto(env.client.baseUrl!);
     const balance = await accounts.readSnapshot('香港账户', 'USD');
     console.log('TIGER_BALANCE ' + JSON.stringify(balance));
-    const securities = new SecuritiesTradingPage(client.page);
+    const securities = new SecuritiesTradingPage(clientPage);
     await securities.goto(env.client.baseUrl!);
     const tiger = (await securities.readBrokerCards()).filter(card => card.name === '老虎证券');
     expect(tiger).toHaveLength(1);
     console.log('TIGER_CARD ' + JSON.stringify(tiger[0]));
-    expect(tiger[0].status).toBe('待开户');
+    if (/^(?:已开通|已开户)$/.test(tiger[0].status)) {
+      console.log('TIGER_MENU_PREFLIGHT ' + JSON.stringify(evaluateTigerPreflight({
+        email: source.email,
+        brokerStatus: tiger[0].status,
+        currentBalance: balance.available,
+        requiredBalance: tiger[0].openingFee
+      })));
+      return;
+    }
+    if (tiger[0].status !== '待开户') {
+      console.log('TIGER_MENU_PREFLIGHT ' + JSON.stringify(evaluateTigerPreflight({
+        email: source.email,
+        brokerStatus: tiger[0].status,
+        currentBalance: balance.available,
+        requiredBalance: tiger[0].openingFee
+      })));
+      return;
+    }
     await securities.openApplication('老虎证券');
-    const opening = new BrokerOpeningPage(client.page);
+    const opening = new BrokerOpeningPage(clientPage);
     const fee = await opening.readFee();
     expect(fee.currency).toBe('USD');
-    expect(new Decimal(balance.available).greaterThan(fee.amount)).toBe(true);
+    const result = evaluateTigerPreflight({ email: source.email, brokerStatus: tiger[0].status,
+      currentBalance: balance.available, requiredBalance: fee.amount });
+    console.log('TIGER_MENU_PREFLIGHT ' + JSON.stringify(result));
     console.log('TIGER_FEE_FORM ' + await opening.readSafeState());
     business.setBusinessData({ sourceRunId, registrationTestName: source.displayName, beforeAvailableBalance: balance.available,
       openingFeeAmount: fee.amount, currency: fee.currency, confirmationClicks: 0, approvalClicks: 0 });

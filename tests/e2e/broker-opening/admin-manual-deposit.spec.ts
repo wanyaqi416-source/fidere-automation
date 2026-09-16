@@ -9,6 +9,7 @@ import {
   RegistrationAdminApprovalJourneyStore
 } from '../../../src/registration';
 import { AdminShellPage } from '../../../pages/admin/AdminShellPage';
+import { AdminClientUsersPage } from '../../../pages/admin/AdminClientUsersPage';
 import { ManualFiatDepositPage } from '../../../pages/admin/ManualFiatDepositPage';
 import { AccountDetailPage } from '../../../pages/client/AccountDetailPage';
 import { RegistrationKycStatusPage } from '../../../pages/client/RegistrationKycStatusPage';
@@ -17,51 +18,65 @@ import { maskSensitiveText } from '../../../src/reporting/sensitive-data-mask';
 
 test.use({ trace: 'off', screenshot: 'off', video: 'off' });
 test.describe.configure({ mode: 'serial', retries: 0 });
-test('ADMIN-MD-001 原Journey香港USD手动入金一次 @money @mutation @L4', async ({ browser, adminPage, business }, testInfo) => {
+test('ADMIN-MD-001 指定用户香港USD手动入金一次 @money @mutation @L4', async ({ browser, adminPage, business }, testInfo) => {
   test.setTimeout(180_000);
   const sourceRunId = process.env.BROKER_SOURCE_RUN_ID;
+  const selectedEmail = process.env.MANUAL_DEPOSIT_USER_EMAIL?.trim().toLowerCase();
   const runId = process.env.MANUAL_DEPOSIT_RUN_ID;
   const amount = process.env.MANUAL_DEPOSIT_AUTHORIZED_AMOUNT;
   const resumeConfirmation = process.env.MANUAL_DEPOSIT_RESUME_CONFIRMATION === 'true';
-  if (!sourceRunId || !runId || !amount) throw new Error('Explicit source, named Run and authorized amount required.');
+  if ((!sourceRunId && !selectedEmail) || !runId || !amount) {
+    throw new Error('Explicit user or source, named Run and authorized amount required.');
+  }
+  if (selectedEmail && env.client.username?.trim().toLowerCase() !== selectedEmail) {
+    throw new Error('Manual deposit runtime Client identity does not match the selected email.');
+  }
   const guard = new MoneyMutationGuard('admin-manual-fiat-deposit');
   const switches = { ALLOW_MONEY_TESTS: env.exchange.allowMoneyTests, ALLOW_ADMIN_MUTATION_TESTS: env.allowAdminMutationTests };
   for (const baseURL of [env.client.baseUrl, env.admin.baseUrl]) guard.validateRuntime({ baseURL, workers: testInfo.config.workers, retries: testInfo.project.retries, repeatEach: testInfo.project.repeatEach, safetySwitches: switches });
   expect(testInfo.retry + testInfo.repeatEachIndex).toBe(0);
-  const postRegistrationSource = new PersonalPostRegistrationJourneyStore(sourceRunId).load();
-  const registrationApprovalSource = new RegistrationAdminApprovalJourneyStore('personal', sourceRunId).load();
-  const source = postRegistrationSource?.stage === 'COMPLETED'
-    ? postRegistrationSource
-    : registrationApprovalSource?.stage === 'COMPLETED'
-      ? registrationApprovalSource
-      : undefined;
-  if (!source) throw new Error('Existing completed and Admin-approved Personal Journey required; creating users/deposits in Client is forbidden.');
-  const kycSource = {
-    accountType: 'PERSONAL' as const,
-    runId: sourceRunId,
-    email: source.email,
-    displayName: source.displayName,
-    userId: 'userId' in source ? source.userId : undefined,
-    reviewId: source.reviewId,
-    clientSubmittedAt: 'clientSubmittedAt' in source ? source.clientSubmittedAt : undefined
-  };
+  let source: { accountType: 'PERSONAL' | 'BUSINESS'; runId: string; email: string; displayName: string;
+    userId?: string; reviewId?: string; clientSubmittedAt?: string };
+  if (selectedEmail) {
+    const identity = await new AdminClientUsersPage(adminPage).readDepositCustomerIdentityByEmail(env.admin.baseUrl!, selectedEmail);
+    source = { accountType: identity.accountType, runId, email: selectedEmail, displayName: identity.name, userId: identity.userId };
+  } else {
+    const legacySourceRunId = sourceRunId!;
+    const postRegistrationSource = new PersonalPostRegistrationJourneyStore(legacySourceRunId).load();
+    const registrationApprovalSource = new RegistrationAdminApprovalJourneyStore('personal', legacySourceRunId).load();
+    const legacy = postRegistrationSource?.stage === 'COMPLETED'
+      ? postRegistrationSource
+      : registrationApprovalSource?.stage === 'COMPLETED'
+        ? registrationApprovalSource
+        : undefined;
+    if (!legacy) throw new Error('Existing completed and Admin-approved Personal Journey required; creating users/deposits in Client is forbidden.');
+    source = { accountType: 'PERSONAL', runId: legacySourceRunId, email: legacy.email, displayName: legacy.displayName,
+      userId: 'userId' in legacy ? legacy.userId : undefined, reviewId: legacy.reviewId,
+      clientSubmittedAt: 'clientSubmittedAt' in legacy ? legacy.clientSubmittedAt : undefined };
+  }
+  const kycSource = source;
   const store = new FreshUserBalanceBootstrapStore();
   let state = store.prepare({ journeyId: runId, userEmail: source.email, bootstrapAmount: amount });
   if (!resumeConfirmation && (state.stage !== 'PREPARED' || state.submissionClicks)) throw new Error('This manual deposit has already been attempted. Read-only reconciliation only, never resubmit.');
   if (resumeConfirmation && (state.finalConfirmationClicks || state.stage === 'BOOTSTRAP_COMPLETED' || state.depositTxn)) throw new Error('Final confirmation was already attempted; only read-only reconciliation is allowed.');
   business.flow('admin-manual-fiat-deposit');
-  business.setBusinessData({ runId, sourceRunId, registrationTestName: source.displayName, maskedLogin: maskRegistrationEmail(source.email), accountType: '香港账户', currency: 'USD', requestedAmount: amount });
+  business.setBusinessData({ runId, sourceRunId: source.runId, registrationTestName: source.displayName,
+    maskedLogin: maskRegistrationEmail(source.email), accountType: '香港账户', currency: 'USD', requestedAmount: amount });
   const shell = new AdminShellPage(adminPage);
   await shell.goto(env.admin.baseUrl!);
   await shell.expectSessionActive();
   const manual = new ManualFiatDepositPage(adminPage);
   await manual.goto(env.admin.baseUrl!);
-  const client = await openPersonalJourneyClientSession({ browser, baseURL: env.client.baseUrl!, runId: sourceRunId,
-    email: source.email, password: env.client.password!, otp: env.client.otp!, forceFreshLogin: true });
+  const client = selectedEmail
+    ? await RegistrationKycStatusPage.cleanLogin({ browser, baseURL: env.client.baseUrl!, email: source.email,
+      password: env.client.password!, otp: env.client.otp! })
+    : await openPersonalJourneyClientSession({ browser, baseURL: env.client.baseUrl!, runId: source.runId,
+      email: source.email, password: env.client.password!, otp: env.client.otp!, forceFreshLogin: true });
+  const clientPage = 'statusPage' in client ? client.statusPage.page : client.page;
   try {
-    await new RegistrationKycStatusPage(client.page).expectApproved(kycSource, env.client.baseUrl!);
+    await new RegistrationKycStatusPage(clientPage).expectApproved(kycSource, env.client.baseUrl!);
     guard.markAuthenticationReady(true, true);
-    const accounts = new AccountDetailPage(client.page);
+    const accounts = new AccountDetailPage(clientPage);
     await accounts.goto(env.client.baseUrl!);
     const before = await accounts.readSnapshot('香港账户', 'USD');
     const existingRows = await manual.findRunLedger(env.admin.baseUrl!, runId);
@@ -72,16 +87,16 @@ test('ADMIN-MD-001 原Journey香港USD手动入金一次 @money @mutation @L4', 
       business.recordDiagnostic({ id: 'manual-deposit-confirmation-only', name: '首次按钮只打开二次确认框', status: 'info',
         summary: '原失败现场存在确认手动入金弹窗、最终确认未点击；只读余额未变且原Run流水0。保留原失败历史，不重复资金提交。', affectsCoreBusiness: false });
     }
-    await business.step({ action: '1. 邮箱唯一选择原用户，填写香港账户USD手动入金', expected: '客户=原Journey；金额=本Run授权金额，备注标明Sandbox用途。' }, async step => {
+    await business.step({ action: '1. 邮箱唯一选择指定用户，填写香港账户USD手动入金', expected: '客户=本次选择用户；金额=本Run授权金额，备注标明Sandbox用途。' }, async step => {
       await manual.goto(env.admin.baseUrl!);
       await manual.openForm();
       await manual.fillForm({ email: source.email, displayName: source.displayName, amount, note: `AUTO_SANDBOX_BROKER_BOOTSTRAP_${runId}` });
-      step.setActual(`邮箱唯一客户=${source.displayName}；香港USD；入金${amount}；原余额${before.available}；渠道Others（测试余额准备）。`);
+      step.setActual(`邮箱唯一客户=${source.displayName}；香港USD；入金${amount}；入金前余额${before.available}；渠道Others（测试余额准备）。`);
       step.setBusinessData({ candidateCount: 1, beforeAvailableBalance: before.available });
     });
     await business.step({ action: '2. Admin确认入金一次', expected: '点击前持久化attempt；不走Client入金，不重试。' }, async step => {
       state = store.recordConfirmationOpened(state);
-      await manual.openConfirmation({ displayName: source.displayName, amount, note: `AUTO_SANDBOX_BROKER_BOOTSTRAP_${runId}` });
+      await manual.openConfirmation({ email: source.email, amount, note: `AUTO_SANDBOX_BROKER_BOOTSTRAP_${runId}` });
       state = store.recordSubmissionAttempt(state, before.available);
       business.setResumeState(state.stage);
       step.disallowSafeRerun(); step.markPotentiallySubmitted();
@@ -103,8 +118,8 @@ test('ADMIN-MD-001 原Journey香港USD手动入金一次 @money @mutation @L4', 
       state = store.recordCompleted(state, { depositTxn: state.depositTxn, balanceBefore: before.available, balanceAfter: after.available });
       business.setResumeState(state.stage);
       step.setBusinessData({ beforeAvailableBalance: before.available, afterApprovedAvailableBalance: after.available, confirmationClicks: state.submissionClicks, finalStatus: '手动入金已到账', confirmed: true });
-      step.setActual(`${after.available} - ${before.available} = ${amount} USD；原用户香港账户入账已确认。`);
-      step.recordPrimaryOracle({ id: 'manual-deposit-completed', name: '唯一原用户单次手动入金及余额到账', expected: '正确账户一次入金，实际增量与授权一致', actual: `确认1次；实际增量${amount} USD`, status: 'passed' });
+      step.setActual(`${after.available} - ${before.available} = ${amount} USD；指定用户香港账户入账已确认。`);
+      step.recordPrimaryOracle({ id: 'manual-deposit-completed', name: '指定用户单次手动入金及余额到账', expected: '正确账户一次入金，实际增量与授权一致', actual: `确认1次；实际增量${amount} USD`, status: 'passed' });
       console.log('MANUAL_DEPOSIT_COMPLETED ' + JSON.stringify({ runId, before: before.available, after: after.available, amount, submissionClicks: 1 }));
     });
     try {

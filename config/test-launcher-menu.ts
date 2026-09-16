@@ -56,19 +56,17 @@ export const TEST_LAUNCHER_ENTRIES: readonly LauncherTestEntry[] = [
 
   flowEntry(3, '法币', 'deposit', { name: '法币入金' }),
   flowEntry(4, '法币', 'deposit-rejection-journey', { name: '法币入金拒绝' }),
-  flowEntry(5, '法币', 'personal-golden-journey-withdrawal', { name: '法币出金' }),
+  { ...flowEntry(5, '法币', 'personal-golden-journey-withdrawal', { name: '法币出金' }),
+    safetySwitches: ['ALLOW_MONEY_TESTS', 'ALLOW_ADMIN_MUTATION_TESTS', 'ALLOW_CLIENT_MUTATION_TESTS'] },
 
-  flowEntry(6, '交易', 'user-to-user-transfer', { name: '用户转账' }),
+  flowEntry(6, '交易', 'user-to-user-transfer-existing', { name: '用户转账' }),
   flowEntry(7, '交易', 'transfer-jurisdiction-to-broker', { name: '资金互转' }),
   flowEntry(8, '交易', 'exchange', { name: '兑换' }),
 
   flowEntry(9, '信托', 'trust-beneficiary-golden-journey', { name: '新增受益人及银行账户' }),
 
   flowEntry(10, '理财', 'wealth-subscribe-approve', { name: '理财产品认购' }),
-  flowEntry(11, '理财', 'wealth-redeem-dry-run', {
-    name: '理财产品赎回（当前仅 Dry Run）',
-    availabilityNote: '当前没有可安全执行的真实赎回持仓，菜单运行现有只读 Dry Run。'
-  }),
+  flowEntry(11, '理财', 'wealth-redeem', { name: '理财产品赎回' }),
   flowEntry(12, '理财', 'wealth-subscribe-reject', { name: '理财认购拒绝' }),
 
   flowEntry(13, '开户', 'tiger-broker-opening', { name: '老虎证券开户' }),

@@ -2,7 +2,8 @@ import { matchCandidatesByStages } from '../flow-engine';
 import type { BrokerOpeningRow } from '../../pages/admin/BrokerOpeningReviewPage';
 
 export function matchTigerOpening(rows: BrokerOpeningRow[], input: {
-  email: string; displayName: string; submittedFrom?: string; submittedTo?: string; reference?: string;
+  email: string; displayName: string; accountType?: 'PERSONAL' | 'BUSINESS';
+  submittedFrom?: string; submittedTo?: string; reference?: string;
 }) {
   return matchBrokerOpening(rows, { ...input, broker: 'TIGER' });
 }
@@ -14,7 +15,8 @@ export function matchWebullOpening(rows: BrokerOpeningRow[], input: {
 }
 
 function matchBrokerOpening(rows: BrokerOpeningRow[], input: {
-  email: string; displayName: string; submittedFrom?: string; submittedTo?: string; reference?: string; broker: 'TIGER' | 'WEBULL';
+  email: string; displayName: string; accountType?: 'PERSONAL' | 'BUSINESS';
+  submittedFrom?: string; submittedTo?: string; reference?: string; broker: 'TIGER' | 'WEBULL';
 }) {
   return matchCandidatesByStages(rows, [
     { id: 'email', label: '原Journey邮箱', matches: row => {
@@ -25,7 +27,10 @@ function matchBrokerOpening(rows: BrokerOpeningRow[], input: {
     { id: 'broker', label: input.broker === 'TIGER' ? '老虎证券' : 'Webull微牛证券', matches: row => input.broker === 'TIGER'
       ? /^(Tiger|老虎证券|TIGER（老虎证券）)$/i.test(row.broker)
       : /^(Webull|Webull 微牛证券|webull（Webull 微牛证券）)$/i.test(row.broker) },
-    { id: 'type', label: '个人账户', matches: row => /^(个人|个人用户|Personal)$/i.test(row.accountType) },
+    { id: 'type', label: input.accountType === 'BUSINESS' ? '企业账户' : '个人账户', matches: row =>
+      input.accountType === 'BUSINESS'
+        ? /^(企业|企业用户|Business|Corporate)$/i.test(row.accountType)
+        : /^(个人|个人用户|Personal)$/i.test(row.accountType) },
     { id: 'reference', label: '原申请引用（如已取得）', matches: row => !input.reference || row.reference === input.reference },
     { id: 'time', label: '本次Client提交时间', matches: row => {
       if (!input.submittedFrom || !input.submittedTo) return true;

@@ -49,13 +49,13 @@ function required(name: string, value: string | undefined): string {
   return value.trim();
 }
 
-export function getWithdrawalTestConfig(): WithdrawalTestConfig {
+export function getWithdrawalTestConfig(options: { defaultClient?: boolean } = {}): WithdrawalTestConfig {
   return {
     accountType: required('WITHDRAWAL_ACCOUNT_TYPE', env.withdrawal.accountType),
     currency: required('WITHDRAWAL_CURRENCY', env.withdrawal.currency),
     currencyLabel: required('WITHDRAWAL_CURRENCY_LABEL', env.withdrawal.currencyLabel),
-    beneficiaryName: required('WITHDRAWAL_BENEFICIARY_NAME', env.withdrawal.beneficiaryName),
-    beneficiaryAccountSuffix: required(
+    beneficiaryName: options.defaultClient ? '' : required('WITHDRAWAL_BENEFICIARY_NAME', env.withdrawal.beneficiaryName),
+    beneficiaryAccountSuffix: options.defaultClient ? '' : required(
       'WITHDRAWAL_BENEFICIARY_ACCOUNT_SUFFIX',
       env.withdrawal.beneficiaryAccountSuffix
     ),

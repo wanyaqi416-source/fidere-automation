@@ -18,6 +18,8 @@ export function matchesU2uLedger(record: Omit<UserTransferLedgerRecord, 'row'>, 
 
 export async function locateU2uLedger(page: Page, baseURL: string, evidence: U2uEvidence, side: 'sender' | 'recipient', recipientEmail: string) {
   if (!evidence.submittedAt) throw new Error('U2U submission window is missing.');
+  const excludedIds = side === 'sender' ? evidence.senderLedgerIdsBefore : evidence.recipientLedgerIdsBefore;
+  if (!excludedIds) throw new Error(`U2U ${side} ledger baseline is unavailable for reconciliation.`);
   const transactions = new TransactionsPage(page);
   let matches: UserTransferLedgerRecord[] = [];
   await expect.poll(async () => {
@@ -27,7 +29,7 @@ export async function locateU2uLedger(page: Page, baseURL: string, evidence: U2u
       accountType: side === 'sender' ? evidence.sourceAccountType : evidence.targetAccountType,
       signedAmount: side === 'sender' ? new Decimal(evidence.amount).negated().toFixed() : evidence.expectedCredit,
       submittedAt: evidence.submittedAt!,
-      excludedIds: side === 'sender' ? evidence.senderLedgerIdsBefore : evidence.recipientLedgerIdsBefore
+      excludedIds
     }));
     if (matches.length > 1) throw new Error(`U2U ${side} ledger candidateCount=${matches.length}; do not choose the first record.`);
     return matches.length;
@@ -48,11 +50,15 @@ export async function reconcileU2u(input: {
   browser: Browser; baseURL: string; sender: string; recipient: string; evidence: U2uEvidence; business: BusinessReportApi;
 }) {
   const { browser, baseURL, sender, recipient, evidence, business } = input;
+  if (!evidence.recipientBefore || !evidence.recipientLedgerIdsBefore) {
+    throw new Error('Recipient balance and ledger baselines are unavailable for this historical reconciliation flow.');
+  }
+  const recipientBefore = evidence.recipientBefore;
   for (const side of ['sender', 'recipient'] as const) {
     const participant = await loginU2uParticipant(browser, baseURL, side === 'sender' ? sender : recipient);
     try {
       await business.step({ action: `${side === 'sender' ? '发送方扣款' : '收款方到账'}余额验证`, expected: '重新干净登录，按本次页面报价及费用规则用Decimal核对余额' }, async ({ setActual }) => {
-        const before = new Decimal(side === 'sender' ? evidence.senderBefore : evidence.recipientBefore);
+        const before = new Decimal(side === 'sender' ? evidence.senderBefore : recipientBefore);
         const expected = side === 'sender' ? before.minus(evidence.amount) : before.plus(evidence.expectedCredit);
         let after = '';
         await expect.poll(async () => {

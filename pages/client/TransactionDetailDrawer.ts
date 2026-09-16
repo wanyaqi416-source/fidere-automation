@@ -16,6 +16,7 @@ export type FiatDepositDetail = {
   createdAt: string;
   reviewedAt: string;
   rejectionReason?: string;
+  rejectionReasonReadStatus?: 'read' | 'absent' | 'unavailable';
 };
 
 export type FiatWithdrawalDetail = {
@@ -115,7 +116,7 @@ export class TransactionDetailDrawer {
       status,
       createdAt: await this.readLabeledValue(detailsSection, '创建日期'),
       reviewedAt: await this.readLabeledValue(detailsSection, '审核时间'),
-      rejectionReason: await this.readOptionalDepositRejectionReason()
+      ...await this.readOptionalDepositRejectionReason()
     };
   }
 
@@ -125,14 +126,19 @@ export class TransactionDetailDrawer {
     await expect(this.withdrawalRoot.getByText('指示详情', { exact: true })).toBeVisible();
   }
 
-  private async readOptionalDepositRejectionReason(): Promise<string | undefined> {
+  private async readOptionalDepositRejectionReason(): Promise<Pick<FiatDepositDetail, 'rejectionReason' | 'rejectionReasonReadStatus'>> {
     const labels = this.root.getByText(/^(?:拒绝原因|驳回原因)$/);
     const visible = [];
     for (const label of await labels.all()) if (await label.isVisible()) visible.push(label);
-    if (visible.length === 0) return undefined;
-    if (visible.length !== 1) throw new Error('Deposit rejection reason field is ambiguous.');
-    const label = (await visible[0].innerText()).trim();
-    return this.readLabeledValue(this.root, label);
+    if (visible.length === 0) return { rejectionReasonReadStatus: 'absent' };
+    if (visible.length !== 1) return { rejectionReasonReadStatus: 'unavailable' };
+    // Optional presentation data must not prevent reading the original order's terminal state.
+    const value = await visible[0].evaluate(label => {
+      const siblings = Array.from(label.parentElement?.children ?? []).filter(node => node !== label);
+      if (siblings.length !== 1) return undefined;
+      return (siblings[0] as HTMLElement).innerText?.trim() || undefined;
+    });
+    return { rejectionReason: value, rejectionReasonReadStatus: value ? 'read' : 'unavailable' };
   }
 
   async readFiatWithdrawalDetail(): Promise<FiatWithdrawalDetail> {

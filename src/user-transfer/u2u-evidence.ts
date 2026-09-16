@@ -15,11 +15,12 @@ export type U2uEvidence = {
   fee: string;
   expectedCredit: string;
   senderBefore: string;
-  recipientBefore: string;
+  recipientBefore?: string;
   senderAfter?: string;
   recipientAfter?: string;
   senderLedgerIdsBefore: string[];
-  recipientLedgerIdsBefore: string[];
+  recipientLedgerIdsBefore?: string[];
+  orderIdsBefore?: string[];
   submittedAt?: string;
   orderId?: string;
   senderLedgerId?: string;
@@ -43,6 +44,32 @@ export function assertU2uFreshAllowed(states: FlowResumeState[], runId: string) 
   }
 }
 
+export function unfinishedU2uForParticipants(
+  states: FlowResumeState[], sender: string, recipient: string,
+  loadEvidence: (runId: string) => U2uEvidence = loadU2uEvidence
+): FlowResumeState[] {
+  const senderHash = participantHash(sender);
+  const recipientHash = participantHash(recipient);
+  return states.filter(state => state.stage !== 'COMPLETED').filter(state => {
+    const evidence = loadEvidence(state.runId);
+    return evidence.senderHash === senderHash && evidence.recipientHash === recipientHash;
+  });
+}
+
+export function assertU2uFreshAllowedForParticipants(
+  states: FlowResumeState[], runId: string, sender: string, recipient: string,
+  loadEvidence: (runId: string) => U2uEvidence = loadU2uEvidence
+) {
+  if (states.some(state => state.runId === runId)) {
+    throw new Error('An existing U2U Run ID must be resumed; a replacement transfer is forbidden.');
+  }
+  const attempts = unfinishedU2uForParticipants(states, sender, recipient, loadEvidence)
+    .filter(state => stageIndex(state.stage) >= stageIndex('CLIENT_SUBMIT_ATTEMPTED'));
+  if (attempts.length > 0) {
+    throw new Error('An existing U2U attempt for these participants must be reconciled; a replacement transfer is forbidden.');
+  }
+}
+
 function evidencePath(runId: string) {
   const statePath = new FlowStateStore().pathFor(U2U_FLOW_ID, runId);
   return join(dirname(statePath), 'evidence', `${runId}.json`);
@@ -57,6 +84,7 @@ export function saveU2uEvidence(evidence: U2uEvidence) {
     expectedCredit: evidence.expectedCredit, senderBefore: evidence.senderBefore, recipientBefore: evidence.recipientBefore,
     senderAfter: evidence.senderAfter, recipientAfter: evidence.recipientAfter,
     senderLedgerIdsBefore: evidence.senderLedgerIdsBefore, recipientLedgerIdsBefore: evidence.recipientLedgerIdsBefore,
+    orderIdsBefore: evidence.orderIdsBefore,
     submittedAt: evidence.submittedAt, orderId: evidence.orderId, senderLedgerId: evidence.senderLedgerId,
     recipientLedgerId: evidence.recipientLedgerId, status: evidence.status,
     adminApprovalClicks: evidence.adminApprovalClicks, adminConfirmationClicks: evidence.adminConfirmationClicks,
@@ -75,8 +103,8 @@ export function loadU2uEvidence(runId: string): U2uEvidence {
   const path = evidencePath(runId);
   if (!existsSync(path)) throw new Error('Original U2U evidence not found; do not create a replacement transfer.');
   const evidence = JSON.parse(readFileSync(path, 'utf8')) as U2uEvidence;
-  if (evidence.runId !== runId || !evidence.senderBefore || !evidence.recipientBefore) {
-    throw new Error('Original U2U baselines are missing.');
+  if (evidence.runId !== runId || !evidence.senderBefore) {
+    throw new Error('Original U2U Sender baseline is missing.');
   }
   return evidence;
 }

@@ -10,6 +10,7 @@ import { CorporateRegistrationSigner } from '../../../pages/client/registration/
 import { expect, test } from '../../../fixtures/registration.fixture';
 import { authStatePaths, existingAuthState } from '../../../src/config/auth';
 import { env } from '../../../src/config/env';
+import { requireRegistrationEmail } from '../../../src/utils/runtime-email';
 import { pendingRegistrationApprovalRunId, preflightRegistrationAdmin, rememberRegistrationSubmission, runRegistrationKycTail, submittedRegistrationSource } from '../../../src/registration/registration-kyc-tail';
 import {
   CORPORATE_DOCUMENT_MAPPING,
@@ -106,13 +107,13 @@ test(
     business.plan(steps);
 
     const clientBaseUrl = required('CLIENT_BASE_URL', env.client.baseUrl);
+    const requestedEmail = requireRegistrationEmail(env.corporateRegistration.email);
     const password = required('CLIENT_PASSWORD', env.client.password);
     const registerOtp = required('CLIENT_REGISTER_OTP', env.personalRegistration.otp);
     const loginOtp = required('CLIENT_OTP or CLIENT_REGISTER_OTP', env.client.otp ?? registerOtp);
     const store = new CorporateRegistrationJourneyStore();
     await preflightRegistrationAdmin(adminPage, testInfo);
     const submittedUser = store.load();
-    const requestedEmail = env.corporateRegistration.email?.trim().toLowerCase();
     const explicitlyDifferentJourney = Boolean(
       env.corporateRegistration.startNewJourney && requestedEmail &&
       submittedUser?.email.trim().toLowerCase() !== requestedEmail
@@ -120,7 +121,7 @@ test(
     const approvalRunId = process.env.BUSINESS_REGISTRATION_APPROVAL_SOURCE_RUN_ID?.trim() ||
       env.personalRegistration.adminApprovalSourceRunId ||
       (!explicitlyDifferentJourney ? pendingRegistrationApprovalRunId('BUSINESS', requestedEmail) ||
-        (submittedUser && corporateJourneyStageAtLeast(submittedUser.stage, 'KYC_SUBMITTED')
+        (submittedUser && submittedUser.email.trim().toLowerCase() === requestedEmail && corporateJourneyStageAtLeast(submittedUser.stage, 'KYC_SUBMITTED')
           ? submittedUser.runId : undefined) : undefined);
     if (approvalRunId) {
       const source = submittedRegistrationSource('BUSINESS', approvalRunId);
@@ -272,6 +273,10 @@ test(
         });
         expect(testInfo.repeatEachIndex).toBe(0);
         const existingJourney = store.load();
+        if (existingJourney && existingJourney.stage !== 'COMPLETED' &&
+          existingJourney.email.trim().toLowerCase() !== requestedEmail && !explicitlyDifferentJourney) {
+          throw new Error('REGISTRATION_RESUME_EMAIL_MISMATCH: 当前未完成账号与输入邮箱不同，不会改用其他邮箱注册。');
+        }
         const startExplicitNewJourney = Boolean(
           existingJourney &&
           existingJourney.stage !== 'COMPLETED' &&

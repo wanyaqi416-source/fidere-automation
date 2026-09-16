@@ -12,11 +12,17 @@
 
 启动后会显示自动化测试菜单。
 
+通过菜单执行时默认显示浏览器窗口，不增加操作等待。临时后台运行可在 PowerShell 中执行 `$env:PLAYWRIGHT_HEADLESS='true'; npm run test`；CI 默认保持 headless。
+
 ### 2. 选择测试流程
 
 根据菜单输入需要执行流程前面的数字，例如：
 
 `6. 用户转账`
+
+选择个人或企业注册后，需输入本次真实可接收验证码的邮箱；不输入或格式不合法时不会启动注册。选择用户转账后，输入收款邮箱，或直接回车使用 `.env` 中的 `U2U_DEFAULT_RECIPIENT_EMAIL`。这些输入仅对本次执行生效。
+
+用户转账使用现有双方账号，包含 Admin 审核及双方余额、流水验证。执行前需配置 `U2U_RUN_ID`、`U2U_SOURCE_ACCOUNT_TYPE`、`U2U_CURRENCY`、`U2U_TEST_AMOUNT`；同一 Run 自动续办原订单，不重新转账。收款方也需能够登录，沿用现有 `U2U_RECIPIENT_USE_CLIENT_CREDENTIALS` 配置；不能登录时在转账前停止，不跳过到账验证。目标账户默认与转出账户同地区，可用 `U2U_TARGET_ACCOUNT_TYPE` 明确指定，实际订单必须匹配。
 
 输入对应数字后按回车，确认测试信息后输入：
 

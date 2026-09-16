@@ -8,6 +8,10 @@ import { clientRouteUrl } from './HomePage';
 
 export type DepositAccountCurrencyMatrix = Record<string, string[]>;
 
+type PayingBankControl =
+  | { kind: 'select'; combobox: Locator }
+  | { kind: 'single'; text: string; accountNumber: string };
+
 export type DepositFormSnapshot = {
   accountType: string;
   currencyLabel: string;
@@ -81,12 +85,35 @@ export class DepositPage {
   }
 
   async readPayingBankCount(): Promise<number> {
-    const options = await this.readOptions(await this.payingBankCombobox());
+    const control = await this.payingBankControl();
+    if (control.kind === 'single') return 1;
+    const options = await this.readOptions(control.combobox);
     return options.length;
   }
 
+  async readPayingBankChoices(): Promise<string[]> {
+    const control = await this.payingBankControl();
+    return control.kind === 'single' ? [`${control.text} ${control.accountNumber}`] : this.readOptions(control.combobox);
+  }
+
+  async expectPayingBankDetails(bankName: string, accountNumber: string): Promise<void> {
+    const section = this.page.locator('.MuiAccordion-root').filter({
+      has: this.page.getByRole('heading', { name: '选择打款银行', exact: true })
+    }).filter({ visible: true });
+    await expect(section).toHaveCount(1);
+    for (const [label, expected] of [['银行名称', bankName], ['账户号码', accountNumber]]) {
+      const value = section.getByText(label, { exact: true }).locator('..').getByRole('heading', { includeHidden: true });
+      await expect(value).toHaveCount(1);
+      await expect.poll(async () => (await value.textContent() ?? '').replace(/\s/g, '').toLowerCase(),
+        { message: `Selected paying bank ${label} must match the approved account.` })
+        .toBe(expected.replace(/\s/g, '').toLowerCase());
+    }
+  }
+
   async selectFirstPayingBank(): Promise<void> {
-    const combobox = await this.payingBankCombobox();
+    const control = await this.payingBankControl();
+    if (control.kind === 'single') return;
+    const { combobox } = control;
     const options = await this.readOptions(combobox);
     if (options.length === 0) {
       throw new Error('Client Deposit has no configured paying bank option.');
@@ -96,35 +123,27 @@ export class DepositPage {
 
   async selectPayingBank(expectedText: string, accountSuffix?: string): Promise<string> {
     const normalizedExpected = expectedText.replace(/\s+/g, '').toLocaleLowerCase();
-    try {
-      const combobox = await this.payingBankCombobox();
-      const options = await this.readOptions(combobox);
-      const matches = options.filter(option => {
-        const normalized = option.replace(/\s+/g, '').toLocaleLowerCase();
-        return normalized.includes(normalizedExpected) ||
-          Boolean(accountSuffix && normalized.endsWith(accountSuffix));
-      });
-      if (matches.length !== 1) {
-        throw new Error(
-          `Client Deposit expected one paying bank matching the approved account; found ${matches.length}.`
-        );
+    const matchesBank = (text: string, account = text): boolean => {
+      const normalized = text.replace(/\s+/g, '').toLocaleLowerCase();
+      return Boolean(normalizedExpected && normalized.includes(normalizedExpected)) ||
+        Boolean(accountSuffix && account.replace(/\s+/g, '').endsWith(accountSuffix));
+    };
+    const control = await this.payingBankControl();
+    if (control.kind === 'single') {
+      if (!matchesBank(control.text, control.accountNumber)) {
+        throw new Error('Client Deposit default paying bank does not match the approved account.');
       }
-      await this.selectOption(combobox, matches[0]);
-      return matches[0];
-    } catch (error) {
-      const visibleBankLabels: string[] = [];
-      const candidates = this.page.getByText(expectedText, { exact: false });
-      for (const candidate of await candidates.all()) {
-        if (await candidate.isVisible()) {
-          const text = (await candidate.innerText()).trim();
-          if (text) visibleBankLabels.push(text);
-        }
-      }
-      if (visibleBankLabels.length === 1) {
-        return visibleBankLabels[0];
-      }
-      throw error;
+      return control.text;
     }
+    const options = await this.readOptions(control.combobox);
+    const matches = options.filter(option => matchesBank(option));
+    if (matches.length !== 1) {
+      throw new Error(
+        `Client Deposit expected one paying bank matching the approved account; found ${matches.length}.`
+      );
+    }
+    await this.selectOption(control.combobox, matches[0]);
+    return matches[0];
   }
 
   async readChannelOptions(): Promise<string[]> {
@@ -157,6 +176,10 @@ export class DepositPage {
 
   async selectTransferMethod(method: string): Promise<void> {
     await this.selectOption(await this.formCombobox(/^转账方式/), method);
+  }
+
+  async readSelectedTransferMethod(): Promise<string> {
+    return (await (await this.formCombobox(/^转账方式/)).innerText()).trim();
   }
 
   async readSupportingDocumentRequirements(): Promise<DepositSupportingDocumentRequirements> {
@@ -267,8 +290,42 @@ export class DepositPage {
     return this.comboboxNearText('币种');
   }
 
-  private async payingBankCombobox(): Promise<Locator> {
-    return this.comboboxNearText('选择打款银行');
+  private async payingBankControl(): Promise<PayingBankControl> {
+    const section = this.page.locator('.MuiAccordion-root').filter({
+      has: this.page.getByRole('heading', { name: '选择打款银行', exact: true })
+    }).filter({ visible: true });
+    if (await section.count() === 0) {
+      return { kind: 'select', combobox: await this.comboboxNearText('选择打款银行') };
+    }
+    await expect(section).toHaveCount(1);
+    const combobox = section.getByRole('combobox', { includeHidden: true });
+    if (await combobox.count() > 0) {
+      await expect(combobox).toHaveCount(1);
+      if (!(await combobox.isVisible())) {
+        const summary = section.getByRole('button').filter({
+          has: this.page.getByRole('heading', { name: '选择打款银行', exact: true })
+        });
+        await expect(summary).toHaveAttribute('aria-expanded', 'false');
+        await summary.click();
+      }
+      await expect(combobox).toBeVisible();
+      return { kind: 'select', combobox };
+    }
+
+    // A single bank is preselected. Its details stay in the collapsed accordion; no selection click is needed.
+    const readDetail = async (label: string): Promise<string> => {
+      const value = section.getByText(label, { exact: true }).locator('..')
+        .getByRole('heading', { includeHidden: true });
+      await expect(value).toHaveCount(1);
+      await expect(value).toHaveText(/\S/);
+      const text = (await value.textContent())!.trim();
+      if (text === '-') throw new Error(`Client Deposit default paying bank is missing ${label}.`);
+      return text;
+    };
+    const bankName = await readDetail('银行名称');
+    const accountHolder = await readDetail('账户名称');
+    const accountNumber = await readDetail('账户号码');
+    return { kind: 'single', text: `${bankName} / ${accountHolder}`, accountNumber };
   }
 
   private async formCombobox(label: RegExp): Promise<Locator> {

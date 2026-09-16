@@ -16,6 +16,9 @@ import type { BusinessReportApi } from '../reporting/business-report.types';
 import { Decimal } from '../utils/money';
 import { assertClientTestEnvironment } from '../utils/clientSafety';
 import { runDepositAuthPreflight } from './deposit-auth-preflight';
+import { resolveDepositFormLabels } from './deposit-form-labels';
+import { readDefaultFiatUser, chooseApprovedBank, approvedBankNumber } from './default-client-bank';
+import { defaultFiatUserKey } from '../utils/default-fiat-user';
 import {
   clientDepositIdPattern, DepositExecutionGuard, deriveUniqueDepositAmount, diagnoseAdminDepositCandidates,
   matchAdminDepositCandidates, matchAdminDepositRecordsIgnoringStatus, matchesDepositCustomerIdentity,
@@ -38,11 +41,15 @@ export async function runDepositRejection(input: {
   const { browser, adminPage, business, testInfo, mode } = input;
   const runId = required('DEPOSIT_REJECT_RUN_ID');
   const sourceRunId = required('DEPOSIT_REJECT_SOURCE_RUN_ID');
-  const source = new PersonalPostRegistrationJourneyStore(sourceRunId).load();
-  const registration = new PersonalJourneyContextStore().load(sourceRunId);
-  if (!source || source.stage !== 'COMPLETED' || !source.fiatAddressReference || !registration?.sequence) {
+  const useDefault = process.env.DEPOSIT_REJECT_USE_DEFAULT_CLIENT === 'true';
+  const legacySource = useDefault ? undefined : new PersonalPostRegistrationJourneyStore(sourceRunId).load();
+  const registration = useDefault ? undefined : new PersonalJourneyContextStore().load(sourceRunId);
+  if (!useDefault && (!legacySource || legacySource.stage !== 'COMPLETED' || !legacySource.fiatAddressReference || !registration?.sequence)) {
     throw new Error('An existing KYC-approved Journey with approved bank address is required; no new user/address is allowed.');
   }
+  const source = useDefault ? { email: env.client.username!, displayName: '', accountType: 'PERSONAL' as 'PERSONAL' | 'BUSINESS', fiatAddressReference: undefined as string | undefined } : legacySource!;
+  if (!source.email) throw new Error('CLIENT_USERNAME_REQUIRED');
+  if (useDefault && sourceRunId !== defaultFiatUserKey(source.email)) throw new Error('Deposit Resume default Client identity changed.');
   const account = env.deposit.accountType!;
   const currency = env.deposit.currency!;
   const currencyLabel = env.deposit.currencyLabel!;
@@ -73,8 +80,8 @@ export async function runDepositRejection(input: {
   if (mode === 'resume' && run!.state().stage === 'COMPLETED') throw new Error('Completed Deposit allows readonly only.');
   const reason = `AUTOMATION DEPOSIT REJECTION TEST ${runId}`;
   const reference = `AUTO_${runId}`;
-  const bankName = `FIDERE SANDBOX BANK ${source.displayName.split(' ').at(-1)}`;
-  const bankAccount = `88000000${String(registration.sequence).padStart(4, '0')}`;
+  let bankName = useDefault ? '' : `FIDERE SANDBOX BANK ${source.displayName.split(' ').at(-1)}`;
+  let bankAccount = useDefault ? '' : `88000000${String(registration!.sequence).padStart(4, '0')}`;
   const windowMs = env.deposit.matchWindowMs;
   const guard = new DepositExecutionGuard();
   const list = new DepositClaimListPage(adminPage);
@@ -97,12 +104,30 @@ export async function runDepositRejection(input: {
     let transactions = new TransactionsPage(page);
     await business.step({ action: '1. 双端认证、原用户KYC和已批准银行地址预检', expected: '同一用户KYC通过，已有银行地址审核通过；不创建用户或地址。' }, async step => {
       await runDepositAuthPreflight({ clientPage: page, adminPage, clientBaseUrl: clientBase, adminBaseUrl: adminBase, guard });
-      await new RegistrationKycStatusPage(page).expectApproved({ ...source, runId: sourceRunId }, clientBase);
-      const banks = new AdminFiatAccountReviewPage(adminPage);
-      await banks.goto(adminBase, '已通过');
-      const result = await banks.locateCandidate({ email: source.email, displayName: source.displayName, bankName, bankAccount });
-      expect(result.candidateCount, 'Approved original bank address must be unique.').toBe(1);
-      expect(result.candidates[0].accountId === source.fiatAddressReference).toBe(true);
+      if (useDefault) {
+        const current = await readDefaultFiatUser({ clientPage: page, adminPage, clientBase, adminBase, email: source.email, runId: sourceRunId });
+        Object.assign(source, current.source);
+        await form.goto(clientBase); await form.selectAccount(account); await form.selectCurrency(currencyLabel);
+        const choices = (await form.readPayingBankChoices()).map(value => value.replace(/\s/g, '').toLowerCase());
+        const selectable = current.banks.filter(bank => choices.some(value =>
+          value === bank.bankName.replace(/\s/g, '').toLowerCase() ||
+          (value.includes(bank.bankName.replace(/\s/g, '').toLowerCase()) &&
+            value.includes(approvedBankNumber(bank).slice(-4).toLowerCase()))));
+        const bank = chooseApprovedBank(selectable, { accountId: run?.bankId(), accountSuffix: process.env.DEPOSIT_BANK_ACCOUNT_SUFFIX, selectForFresh: true });
+        bankName = bank.bankName;
+        bankAccount = approvedBankNumber(bank);
+        if (!bankAccount) throw new Error('Approved bank account suffix is not readable.');
+        source.fiatAddressReference = bank.accountId;
+        run?.bindBank(bank.accountId);
+        step.setBusinessData({ registrationTestName: source.displayName, bankName, beneficiaryAccountSuffix: `****${bankAccount.slice(-4)}` });
+      } else {
+        await new RegistrationKycStatusPage(page).expectApproved({ ...source, runId: sourceRunId }, clientBase);
+        const banks = new AdminFiatAccountReviewPage(adminPage);
+        await banks.goto(adminBase, '已通过');
+        const result = await banks.locateCandidate({ email: source.email, displayName: source.displayName, bankName, bankAccount });
+        expect(result.candidateCount, 'Approved original bank address must be unique.').toBe(1);
+        expect(result.candidates[0].accountId === source.fiatAddressReference).toBe(true);
+      }
       step.setActual('Client/Admin认证有效；原用户KYC和原银行地址已通过。');
     });
     let previousIds = new Set<string>();
@@ -118,14 +143,21 @@ export async function runDepositRejection(input: {
         await form.selectAccount(account);
         await form.selectCurrency(currencyLabel);
         await form.selectPayingBank(bankName, bankAccount.slice(-4));
+        if (useDefault) await form.expectPayingBankDetails(bankName, bankAccount);
         await form.fillAmount(amount);
         const channels = await form.readChannelOptions();
-        channel = env.deposit.channel === '电汇' ? 'SWIFT' : env.deposit.channel!;
+        const labels = resolveDepositFormLabels({
+          channel: env.deposit.channel!,
+          purpose: env.deposit.purpose!,
+          sourceOfFunds: env.deposit.sourceOfFunds!
+        });
+        channel = labels.channel;
         expect(channels.includes(channel), 'Configured channel must exist in the real dropdown.').toBe(true);
         await form.selectChannel(channel);
-        await form.selectPurpose(env.deposit.purpose!);
-        await form.selectSourceOfFunds(env.deposit.sourceOfFunds === '工资' ? '工资及薪酬收入' : env.deposit.sourceOfFunds!);
+        await form.selectPurpose(labels.purpose);
+        await form.selectSourceOfFunds(labels.sourceOfFunds);
         if (env.deposit.transferMethod) await form.selectTransferMethod(env.deposit.transferMethod);
+        await form.uploadSupportingDocument(env.deposit.supportingDocumentPath);
         await form.fillReference(reference);
         const snapshot = await form.readFormSnapshot();
         expect(snapshot.accountType.includes(account) && snapshot.currencyLabel.includes(currencyLabel)).toBe(true);
@@ -139,7 +171,7 @@ export async function runDepositRejection(input: {
         await list.applyFilters({ status: env.deposit.reconciliationAdminStatus ?? '待处理', matchStatus: '已匹配' });
         const records = await list.readAllFilteredRecords();
         const conflicts = matchAdminDepositCandidates(records, {
-          runId, userIdentity: source.displayName, accountType: account, currency, requestedAmount: amount,
+          runId, userIdentity: source.displayName, identityField: source.accountType === 'BUSINESS' ? 'payer' : 'matchedCustomer', accountType: account, currency, requestedAmount: amount,
           clientSubmittedAtMs: Date.now(), adminStatus: env.deposit.reconciliationAdminStatus ?? '待处理'
         }, windowMs, { applyTimeWindow: false });
         expect(conflicts.length, 'Existing pending Deposit conflict; do not submit.').toBe(0);
@@ -166,7 +198,7 @@ export async function runDepositRejection(input: {
       submittedFromMs: submittedAtMs - windowMs, submittedToMs: submittedAtMs + windowMs,
       excludedLedgerTransactionIds: new Set(baseline.previousTransactionIds) };
     business.setBusinessData({ depositBalanceBefore: baseline.balanceBefore, confirmationClicks: 1 });
-    const fingerprint: DepositFingerprint = { runId, userIdentity: source.displayName, accountType: account, currency,
+    const fingerprint: DepositFingerprint = { runId, userIdentity: source.displayName, identityField: source.accountType === 'BUSINESS' ? 'payer' : 'matchedCustomer', accountType: account, currency,
       requestedAmount: amount, clientSubmittedAtMs: submittedAtMs, adminStatus: env.deposit.reconciliationAdminStatus ?? '待处理',
       channel: baseline.channel };
     const adminRecords = async () => {
@@ -195,7 +227,7 @@ export async function runDepositRejection(input: {
           await drawer.open(list, candidate);
           try {
             const detail = await drawer.readDetail();
-            expect(matchesDepositCustomerIdentity(detail.matchedCustomerText, source.displayName)).toBe(true);
+            expect(matchesDepositCustomerIdentity(source.accountType === 'BUSINESS' ? detail.payerText : detail.matchedCustomerText, source.displayName)).toBe(true);
             expect(detail.accountType === account && new Decimal(detail.originalAmount).equals(amount)).toBe(true);
             expect(detail.channel === baseline.channel && detail.reference === candidate.reference &&
               detail.submittedAtText === candidate.submittedAtText).toBe(true);
@@ -251,14 +283,16 @@ export async function runDepositRejection(input: {
       });
       return;
     }
-    const original = mode === 'resume' ? undefined : await business.step({ action: '5. Client唯一入金记录及详情确认真实TXN', expected: '按账户、币种、金额和提交窗口定位唯一新记录，详情存在真实TXN；否则DEPOSIT_SUBMISSION_UNCONFIRMED。' }, async step => {
+    const original = mode === 'resume' && !run!.state().clientReference ? undefined : await business.step({ action: '5. Client唯一入金记录及详情确认真实TXN', expected: '按账户、币种、金额和原提交窗口定位记录；Resume必须核对已保存的原TXN。' }, async step => {
       let records: DepositTransactionRecord[] = [];
       await expect.poll(async () => {
         await transactions.goto(clientBase);
         const result = await transactions.diagnoseDepositRecords(criteria);
         records = result.candidates;
-        step.setBusinessData({ candidateStageCounts: result.counts, clientDepositHistoryCandidateCount: records.length });
         if (records.length > 1) throw new Error('DEPOSIT_SUBMISSION_UNCONFIRMED: multiple new Client records.');
+        const pinnedId = run!.state().clientReference;
+        if (pinnedId) records = records.filter(record => record.ledgerTransactionId === pinnedId);
+        step.setBusinessData({ candidateStageCounts: result.counts, clientDepositHistoryCandidateCount: records.length });
         return records.length;
       }, { timeout: 60_000, message: 'DEPOSIT_SUBMISSION_UNCONFIRMED: unique new Client Deposit record not observed.' }).toBe(1);
       const record = records[0];
@@ -283,14 +317,14 @@ export async function runDepositRejection(input: {
         const detailDrawer = new DepositClaimDrawer(adminPage);
         await detailDrawer.open(list, candidate);
         const detail = await detailDrawer.readDetail();
-        expect(matchesDepositCustomerIdentity(detail.matchedCustomerText, source.displayName)).toBe(true);
+        expect(matchesDepositCustomerIdentity(source.accountType === 'BUSINESS' ? detail.payerText : detail.matchedCustomerText, source.displayName)).toBe(true);
         expect(detail.accountType === account && new Decimal(detail.originalAmount).equals(amount)).toBe(true);
         expect(detail.channel === baseline.channel && detail.reference === candidate.reference && detail.submittedAtText === candidate.submittedAtText).toBe(true);
         await detailDrawer.closeWithoutConfirming();
       }
       if (mode === 'resume') {
         run!.createdFromVerifiedAdmin(candidate, records.length, fingerprint, windowMs);
-        guard.recordClientSubmissionFromAdminCandidate();
+        if (!original) guard.recordClientSubmissionFromAdminCandidate();
         step.recordPrimaryOracle({ id: 'DP004-CREATED', name: '原提交已形成真实业务申请',
           expected: '原提交标记、完整Admin业务指纹及详情唯一一致', actual: '原Admin申请存在；没有新建或推导TXN', status: 'passed' });
         step.setBusinessData({ existingDepositResume: true, noNewDepositCreated: true });
@@ -370,6 +404,10 @@ export async function runDepositRejection(input: {
       }, { timeout: 75_000, message: 'Client original Deposit did not reach rejected terminal state.' }).toMatch(rejectedStatus);
       expect(record!.ledgerTransactionId === original.record.ledgerTransactionId).toBe(true);
       const detail = await (await transactions.openDepositDetail(record!)).readFiatDepositDetail();
+      if (detail.rejectionReasonReadStatus === 'unavailable') {
+        step.recordDiagnostic({ id: 'DP004-REASON-DISPLAY', name: 'Client拒绝原因展示', status: 'unavailable',
+          summary: '拒绝原因展示结构暂不可读', reason: '仅辅助展示信息，不影响原订单拒绝状态及余额验证。', affectsCoreBusiness: false });
+      }
       expect(detail.displayedTransactionNumber === run!.state().clientReference).toBe(true);
       expect(detail.currency === currency && detail.accountType === account && new Decimal(detail.amount).equals(amount)).toBe(true);
       expect(detail.status).toMatch(rejectedStatus);
@@ -378,7 +416,7 @@ export async function runDepositRejection(input: {
       step.recordPrimaryOracle({ id: 'DP004-CLIENT', name: 'Client同一TXN拒绝终态', expected: '原申请唯一、已拒绝且原因一致（如展示）', actual: detail.status, status: 'passed' });
       step.setBusinessData({ clientDepositStatus: detail.status, clientFinalStatus: detail.status, repeatedClientSubmission: false, recordIdsUnchanged: true,
         rejectReasonDisplayed: Boolean(detail.rejectionReason) });
-      step.setActual(`原Client TXN状态=${detail.status}；唯一新申请，无重复；${detail.rejectionReason ? '拒绝原因匹配' : '页面未展示拒绝原因'}。`);
+      step.setActual(`原Client TXN状态=${detail.status}；唯一新申请，无重复；${detail.rejectionReason ? '拒绝原因匹配' : detail.rejectionReasonReadStatus === 'unavailable' ? '拒绝原因读取仅作辅助诊断' : '页面未展示拒绝原因'}。`);
     }); } catch (error) { clientVerificationError = error; }
     await business.step({ action: '9. 验证最终余额与原始提交前余额完全相同', expected: 'afterBalance = beforeBalance，使用Decimal，不允许本次拒绝入金增加余额。' }, async step => {
       const accountPage = new AccountDetailPage(client!.page);

@@ -13,6 +13,7 @@ export const clientDepositIdPattern = /^TXN-[A-Z0-9-]+$/i;
 export type DepositFingerprint = {
   runId: string;
   userIdentity: string;
+  identityField?: 'matchedCustomer' | 'payer';
   accountType: string;
   currency: string;
   requestedAmount: string;
@@ -40,6 +41,10 @@ export type AdminDepositCandidate = {
 
 function normalizedText(value: string): string {
   return value.trim().replace(/\s+/g, ' ').toLocaleLowerCase();
+}
+
+function depositIdentityText(record: AdminDepositCandidate, fingerprint: DepositFingerprint): string {
+  return fingerprint.identityField === 'payer' ? record.payerText : record.matchedCustomerText;
 }
 
 export function depositCustomerIdentityHash(customerText: string): string {
@@ -85,7 +90,7 @@ export function diagnoseAdminDepositCandidates(
       label: '时间窗口',
       matches: record => record.submittedAtMs >= fingerprint.clientSubmittedAtMs - matchWindowMs && record.submittedAtMs <= fingerprint.clientSubmittedAtMs + matchWindowMs
     },
-    { id: 'user', label: '测试用户', matches: record => matchesDepositCustomerIdentity(record.matchedCustomerText, fingerprint.userIdentity) }
+    { id: 'user', label: fingerprint.identityField === 'payer' ? '付款人' : fingerprint.identityField === 'matchedCustomer' ? '匹配客户' : '测试用户', matches: record => matchesDepositCustomerIdentity(depositIdentityText(record, fingerprint), fingerprint.userIdentity) }
   ]);
   const timeStageIndex = result.stages.findIndex(stage => stage.id === 'timeWindow');
   const beforeUser = records.filter(record =>
@@ -115,7 +120,7 @@ export function diagnoseAdminDepositCandidates(
     },
     candidates: result.candidates,
     preUserIdentityHashes: [...new Set(beforeUser.map(record =>
-      depositCustomerIdentityHash(record.matchedCustomerText)
+      depositCustomerIdentityHash(depositIdentityText(record, fingerprint))
     ))]
   };
 }
@@ -163,7 +168,7 @@ export function matchAdminDepositCandidates(
       normalizedText(record.reference) === normalizedText(fingerprint.reference);
 
     return (
-      matchesDepositCustomerIdentity(record.matchedCustomerText, fingerprint.userIdentity) &&
+      matchesDepositCustomerIdentity(depositIdentityText(record, fingerprint), fingerprint.userIdentity) &&
       normalizedText(record.accountType) === normalizedText(fingerprint.accountType) &&
       record.currency.toUpperCase() === fingerprint.currency.toUpperCase() &&
       amount.isFinite() && amount.equals(expectedAmount) &&
@@ -189,7 +194,7 @@ export function matchAdminDepositRecordsIgnoringStatus(
       normalizedText(record.reference) === normalizedText(fingerprint.reference);
     const timeMatches = record.submittedAtMs >= fingerprint.clientSubmittedAtMs - matchWindowMs &&
       record.submittedAtMs <= fingerprint.clientSubmittedAtMs + matchWindowMs;
-    return matchesDepositCustomerIdentity(record.matchedCustomerText, fingerprint.userIdentity) &&
+    return matchesDepositCustomerIdentity(depositIdentityText(record, fingerprint), fingerprint.userIdentity) &&
       normalizedText(record.accountType) === normalizedText(fingerprint.accountType) &&
       record.currency.toUpperCase() === fingerprint.currency.toUpperCase() &&
       new Decimal(record.requestedAmount).equals(expectedAmount) &&

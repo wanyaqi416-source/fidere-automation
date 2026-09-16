@@ -6,6 +6,7 @@ import { maskSensitiveText } from '../../src/reporting/sensitive-data-mask';
 export class BrokerOpeningPage {
   readonly securityKey: SecurityKeyDialog;
   private confirmationClicks = 0;
+  private postSetupConfirmationClicks = 0;
 
   constructor(readonly page: Page) { this.securityKey = new SecurityKeyDialog(page); }
 
@@ -38,5 +39,22 @@ export class BrokerOpeningPage {
     this.confirmationClicks++;
     await button.click();
     await this.securityKey.waitForOpen();
+  }
+
+  async confirmFeeAfterSecuritySetupOnce(): Promise<void> {
+    assertSandboxEnvironment(this.page.url());
+    if (process.env.ALLOW_MONEY_TESTS !== 'true' || this.postSetupConfirmationClicks) {
+      throw new Error('Broker opening post-setup confirmation requires money authorization and is limited to once.');
+    }
+    const button = this.page.getByRole('button', { name: '确认缴费并开户', exact: true });
+    await expect(button).toBeEnabled();
+    this.postSetupConfirmationClicks++;
+    await button.click();
+    await this.securityKey.waitForOpen();
+    await expect(this.securityKey.verifyButton).toBeVisible();
+  }
+
+  postSetupConfirmationClickCount(): number {
+    return this.postSetupConfirmationClicks;
   }
 }
