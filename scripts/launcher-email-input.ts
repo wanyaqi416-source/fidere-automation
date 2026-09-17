@@ -52,6 +52,13 @@ export async function collectLauncherEmail(
     return { CLIENT_USERNAME: email, TIGER_TEST_EMAIL: email };
   }
 
+  if (entry.flow?.id === 'webull-broker-opening') {
+    const email = (await prompt.question('请输入本次测试用户邮箱：\n> ')).trim().toLowerCase();
+    if (!isValidEmail(email)) throw new Error('WEBULL_TEST_EMAIL_REQUIRED: 请输入合法的测试用户邮箱。');
+    print(`测试用户：${email}`);
+    return { CLIENT_USERNAME: email, WEBULL_TEST_EMAIL: email };
+  }
+
   if (entry.flow?.id === 'account-opening-bahrain-approve' ||
       entry.flow?.id === 'account-opening-singapore-approve') {
     const email = (await prompt.question('请输入本次测试用户邮箱：\n> ')).trim().toLowerCase();

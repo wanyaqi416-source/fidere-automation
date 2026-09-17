@@ -9,7 +9,8 @@ export function matchTigerOpening(rows: BrokerOpeningRow[], input: {
 }
 
 export function matchWebullOpening(rows: BrokerOpeningRow[], input: {
-  email: string; displayName: string; submittedFrom?: string; submittedTo?: string; reference?: string;
+  email: string; displayName: string; accountType?: 'PERSONAL' | 'BUSINESS';
+  submittedFrom?: string; submittedTo?: string; reference?: string;
 }) {
   return matchBrokerOpening(rows, { ...input, broker: 'WEBULL' });
 }

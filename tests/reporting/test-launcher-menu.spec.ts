@@ -56,7 +56,7 @@ test.describe('统一中文测试启动器菜单', () => {
     expect(getLauncherEntry(11)?.name).toBe('理财产品赎回');
     expect(getLauncherEntry(12)?.npmScript).toBe('test:wealth:subscribe:reject');
     expect(getLauncherEntry(13)?.npmScript).toBe('test:broker-opening:tiger');
-    expect(getLauncherEntry(14)?.npmScript).toBe('test:broker-opening:webull:resume');
+    expect(getLauncherEntry(14)?.npmScript).toBe('test:broker-opening:webull');
     expect(getLauncherEntry(15)?.npmScript).toBe('test:account-opening:bh-approve');
     expect(getLauncherEntry(16)?.npmScript).toBe('test:account-opening:us-approve:resume');
     expect(getLauncherEntry(17)?.npmScript).toBe('test:account-opening:sg-approve');
@@ -80,6 +80,12 @@ test.describe('统一中文测试启动器菜单', () => {
 
   test('菜单15和17各只确认一次且余额不足时自动补款', () => {
     const launcher = readFileSync('scripts/test-menu.ts', 'utf8');
+    expect(getLauncherEntry(15)?.safetySwitches).toEqual([
+      'ALLOW_MONEY_TESTS', 'ALLOW_CLIENT_MUTATION_TESTS', 'ALLOW_ADMIN_MUTATION_TESTS'
+    ]);
+    expect(getLauncherEntry(17)?.safetySwitches).toEqual([
+      'ALLOW_MONEY_TESTS', 'ALLOW_CLIENT_MUTATION_TESTS', 'ALLOW_ADMIN_MUTATION_TESTS'
+    ]);
     expect(launcher).toContain('确认执行${accountName}开户？Y/N');
     expect(launcher).toContain('余额不足时将自动补足测试余额；补款完成后自动复核并继续开户，不再询问。');
     expect(launcher).not.toContain('是否通过管理端手动入金补充');
@@ -179,6 +185,23 @@ test.describe('启动器运行时邮箱', () => {
     }
   });
 
+  test('菜单14必须输入本次微牛开户用户且仅覆盖子进程变量', async () => {
+    const environment = Object.freeze({ CLIENT_USERNAME: 'default@example.test' });
+    expect(await collectLauncherEmail(
+      { question: async () => ' Webull.User@example.test ' },
+      getLauncherEntry(14)!,
+      environment,
+      () => undefined
+    )).toEqual({
+      CLIENT_USERNAME: 'webull.user@example.test',
+      WEBULL_TEST_EMAIL: 'webull.user@example.test'
+    });
+    expect(environment.CLIENT_USERNAME).toBe('default@example.test');
+    await expect(collectLauncherEmail(
+      { question: async () => 'bad-email' }, getLauncherEntry(14)!, environment, () => undefined
+    )).rejects.toThrow('WEBULL_TEST_EMAIL_REQUIRED');
+  });
+
   test('菜单15和17必须输入本次开户用户且仅覆盖子进程变量', async () => {
     const environment = Object.freeze({ CLIENT_USERNAME: 'default@example.test', OPENING_TEST_EMAIL: 'old@example.test' });
     for (const number of [15, 17]) {
@@ -204,7 +227,7 @@ test.describe('启动器运行时邮箱', () => {
   });
 
   test('普通业务直接保留原Runner参数，不统一询问邮箱或检查用户状态', async () => {
-    for (const number of [3, 4, 5, 7, 8, 9, 10, 12, 14, 16, 19, 20, 90, 91]) {
+    for (const number of [3, 4, 5, 7, 8, 9, 10, 12, 16, 19, 20, 90, 91]) {
       expect(await collectLauncherEmail({ question: async () => { throw new Error('Unexpected prompt'); } },
         getLauncherEntry(number)!, {}, () => undefined)).toEqual({});
     }

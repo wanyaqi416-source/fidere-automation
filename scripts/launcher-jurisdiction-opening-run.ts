@@ -172,6 +172,7 @@ export function jurisdictionOpeningEnvironment(
     [config.runVariable]: pointer.runId,
     [config.authorizedEmailVariable]: pointer.email,
     ALLOW_MONEY_TESTS: 'true',
+    ALLOW_CLIENT_MUTATION_TESTS: 'true',
     ALLOW_ADMIN_MUTATION_TESTS: 'true'
   };
   if (state?.stage === 'CLIENT_CREATED') {

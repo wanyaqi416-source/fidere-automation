@@ -11,7 +11,38 @@ import {
   markJurisdictionTopUpAttempt,
   parseJurisdictionOpeningPreflightOutput
 } from '../../scripts/launcher-jurisdiction-opening-run';
+import { BahrainAccountOpeningPage } from '../../pages/client/BahrainAccountOpeningPage';
 import { launcherManualDepositEnvironment } from '../../scripts/launcher-manual-deposit-run';
+
+test('余额不足页面没有提交按钮时仍可读取巴林开户费用', async ({ page }) => {
+  await page.route('https://sandbox.example.test/**', async route => {
+    await route.fulfill({
+      contentType: 'text/html; charset=utf-8',
+      body: `
+        <main>
+          <h5>巴林账户开户申请</h5>
+          <h5>暂时无法申请巴林账户</h5>
+          <p>USD 信托账户余额不足以扣开户费 100</p>
+          <hr />
+          <p>开户费用</p>
+          <p>USD 100</p>
+          <p>扣费账户</p>
+          <p>香港法币账户</p>
+        </main>
+      `
+    });
+  });
+  await page.goto('https://sandbox.example.test/zh-CN/account/jurisdiction-application?region=BH');
+
+  const application = new BahrainAccountOpeningPage(page);
+  await application.expectPreflightLoaded();
+  const requirement = await application.readOpeningRequirement();
+
+  expect(requirement.currency).toBe('USD');
+  expect(requirement.openingFee.toFixed(2)).toBe('100.00');
+  expect(requirement.paymentAccount).toBe('香港法币账户');
+  await expect(page.getByRole('button', { name: '确认并提交申请' })).toHaveCount(0);
+});
 
 test('巴林和新加坡分别判断已开户、余额充足及余额不足', () => {
   expect(evaluateJurisdictionOpeningPreflight({
@@ -52,12 +83,18 @@ test('巴林和新加坡创建独立命名Run并传入原Runner变量', () => {
     expect(bh).toMatchObject({
       OPENING_TEST_EMAIL: 'bh@example.test',
       BAHRAIN_OPENING_RUN_ID: 'OPEN-BH-MENU15-20260915123456',
-      BAHRAIN_OPENING_AUTHORIZED_EMAIL: 'bh@example.test'
+      BAHRAIN_OPENING_AUTHORIZED_EMAIL: 'bh@example.test',
+      ALLOW_MONEY_TESTS: 'true',
+      ALLOW_CLIENT_MUTATION_TESTS: 'true',
+      ALLOW_ADMIN_MUTATION_TESTS: 'true'
     });
     expect(sg).toMatchObject({
       OPENING_TEST_EMAIL: 'sg@example.test',
       SINGAPORE_OPENING_RUN_ID: 'OPEN-SG-MENU17-20260915123456',
-      SINGAPORE_OPENING_AUTHORIZED_EMAIL: 'sg@example.test'
+      SINGAPORE_OPENING_AUTHORIZED_EMAIL: 'sg@example.test',
+      ALLOW_MONEY_TESTS: 'true',
+      ALLOW_CLIENT_MUTATION_TESTS: 'true',
+      ALLOW_ADMIN_MUTATION_TESTS: 'true'
     });
   } finally {
     rmSync(root, { recursive: true, force: true });

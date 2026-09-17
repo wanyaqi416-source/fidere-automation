@@ -42,14 +42,14 @@ test('巴林/新加坡开户菜单只读预检 @readonly @L2', async ({ page }) 
   const application = target === 'BH'
     ? new BahrainAccountOpeningPage(page)
     : new SingaporeAccountOpeningPage(page);
-  await application.expectLoaded();
-  const summary = await application.readSummary();
-  if (summary.currency !== 'USD') throw new Error(`${accountName}开户费币种不是USD。`);
+  await application.expectPreflightLoaded();
+  const requirement = await application.readOpeningRequirement();
+  if (requirement.currency !== 'USD') throw new Error(`${accountName}开户费币种不是USD。`);
   console.log('JURISDICTION_MENU_PREFLIGHT ' + JSON.stringify(evaluateJurisdictionOpeningPreflight({
     target,
     email,
     accountStatus: option.status,
     currentBalance,
-    requiredBalance: summary.openingFee.toFixed(2)
+    requiredBalance: requirement.openingFee.toFixed(2)
   })));
 });

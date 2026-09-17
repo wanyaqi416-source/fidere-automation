@@ -39,6 +39,13 @@ import {
   type TigerPreflightResult
 } from './launcher-tiger-run.js';
 import {
+  parseWebullPreflightOutput,
+  webullManualDepositEnvironment,
+  webullOpeningEnvironment,
+  webullPreflightEnvironment,
+  type WebullPreflightResult
+} from './launcher-webull-run.js';
+import {
   launcherWealthRedemptionEnvironment,
   launcherWealthSubscriptionEnvironment,
   launcherWealthSubscriptionRejectionEnvironment
@@ -206,6 +213,23 @@ async function runTigerPreflight(
   return { result: parseTigerPreflightOutput(execution.output), output: execution.output };
 }
 
+async function runWebullPreflight(
+  runtimeEnvironment: Readonly<Record<string, string>>
+): Promise<WebullPreflightResult> {
+  const execution = await runNpmScriptWithResult('test:broker-opening:webull:preflight', {
+    environment: {
+      ...runtimeEnvironment,
+      ALLOW_MONEY_TESTS: 'false',
+      ALLOW_CLIENT_MUTATION_TESTS: 'false',
+      ALLOW_ADMIN_MUTATION_TESTS: 'false',
+      PLAYWRIGHT_HEADLESS: process.env.PLAYWRIGHT_HEADLESS ?? 'false'
+    },
+    quiet: true
+  });
+  if (execution.exitCode !== 0) throw new Error(readableFailure(execution.output));
+  return parseWebullPreflightOutput(execution.output);
+}
+
 async function runJurisdictionOpeningPreflight(
   runtimeEnvironment: Readonly<Record<string, string>>
 ): Promise<JurisdictionOpeningPreflightResult> {
@@ -324,6 +348,9 @@ async function executeSelection(readline: Interface, entry: LauncherTestEntry): 
     if (entry.flow?.id === 'tiger-broker-opening') {
       Object.assign(runtimeEnvironment, tigerPreflightEnvironment(runtimeEnvironment.TIGER_TEST_EMAIL));
     }
+    if (entry.flow?.id === 'webull-broker-opening') {
+      Object.assign(runtimeEnvironment, webullPreflightEnvironment(runtimeEnvironment.WEBULL_TEST_EMAIL));
+    }
     if (entry.flow?.id === 'account-opening-bahrain-approve' ||
         entry.flow?.id === 'account-opening-singapore-approve') {
       const target: LauncherJurisdiction = entry.flow.id === 'account-opening-bahrain-approve' ? 'BH' : 'SG';
@@ -334,12 +361,13 @@ async function executeSelection(readline: Interface, entry: LauncherTestEntry): 
     return 'menu';
   }
   const isTigerOpening = entry.flow?.id === 'tiger-broker-opening';
+  const isWebullOpening = entry.flow?.id === 'webull-broker-opening';
   const jurisdictionTarget: LauncherJurisdiction | undefined = entry.flow?.id === 'account-opening-bahrain-approve'
     ? 'BH'
     : entry.flow?.id === 'account-opening-singapore-approve'
       ? 'SG'
       : undefined;
-  if (!isTigerOpening && !jurisdictionTarget) {
+  if (!isTigerOpening && !isWebullOpening && !jurisdictionTarget) {
     const confirmation = await readline.question('\n确认执行？Y/N：');
     if (!yes(confirmation)) {
       console.log('已取消，本次未执行测试。');
@@ -462,6 +490,97 @@ async function executeSelection(readline: Interface, entry: LauncherTestEntry): 
         return 'menu';
       }
     }
+  }
+
+  if (isWebullOpening) {
+    output.write(`[${step}/${total}] 检查微牛证券开户状态、费用和余额`);
+    let preflight: WebullPreflightResult;
+    try {
+      preflight = await runWebullPreflight(runtimeEnvironment);
+    } catch (error) {
+      console.log(`  ${statusIcon(false)}`);
+      console.log(error instanceof Error ? error.message : String(error));
+      return 'menu';
+    }
+    console.log(`  ${statusIcon(true)}`);
+    if (preflight.status === 'ALREADY_OPEN') {
+      console.log('\n当前测试用户已经开通微牛证券，请更换未开户测试账号。');
+      console.log('本次属于测试数据前置条件不满足，不计为业务 FAIL。');
+      return 'menu';
+    }
+
+    let openingEnvironment: Record<string, string>;
+    let manualDepositEnvironment: Record<string, string> | undefined;
+    try {
+      const plannedPreflight: WebullPreflightResult = preflight.status === 'INSUFFICIENT_BALANCE'
+        ? {
+            ...preflight,
+            status: 'READY',
+            currentBalance: preflight.requiredBalance,
+            shortfall: '0.00'
+          }
+        : preflight;
+      openingEnvironment = webullOpeningEnvironment(plannedPreflight);
+      if (preflight.status === 'INSUFFICIENT_BALANCE') {
+        manualDepositEnvironment = launcherManualDepositEnvironment({
+          ...process.env,
+          ...runtimeEnvironment,
+          ...webullManualDepositEnvironment(preflight)
+        });
+      }
+    } catch (error) {
+      console.log(error instanceof Error ? error.message : String(error));
+      return 'menu';
+    }
+
+    console.log(`\n测试流程：微牛证券开户`);
+    console.log(`测试用户：${preflight.email}`);
+    console.log(`微牛开户 Run：${openingEnvironment.BROKER_OPENING_RUN_ID}`);
+    if (preflight.requiredBalance) console.log(`开户需要：${preflight.requiredBalance} USD`);
+    if (preflight.currentBalance) console.log(`当前余额：${preflight.currentBalance} USD`);
+    if (manualDepositEnvironment) {
+      console.log(`当前缺口：${preflight.shortfall} USD`);
+      console.log(`手动入金 Run：${manualDepositEnvironment.MANUAL_DEPOSIT_RUN_ID}`);
+      console.log('确认后将为同一用户自动补足余额，复核到账后继续双文档签署、开户提交和 Admin 审核。');
+    }
+    const confirmation = await readline.question('\n确认执行微牛证券开户？Y/N：');
+    if (!yes(confirmation)) {
+      console.log('已取消，本次未执行微牛证券开户。');
+      return 'menu';
+    }
+
+    if (manualDepositEnvironment) {
+      console.log(`\n将为同一测试用户补充 ${manualDepositEnvironment.MANUAL_DEPOSIT_AUTHORIZED_AMOUNT} USD。`);
+      const topUp = await runNpmScriptWithResult('test:admin:manual-deposit', {
+        environment: {
+          ...runtimeEnvironment,
+          ...manualDepositEnvironment,
+          ALLOW_MONEY_TESTS: 'true',
+          ALLOW_ADMIN_MUTATION_TESTS: 'true',
+          PLAYWRIGHT_HEADLESS: process.env.PLAYWRIGHT_HEADLESS ?? 'false'
+        },
+        quiet: true
+      });
+      if (topUp.exitCode !== 0) {
+        console.log('\nMANUAL_DEPOSIT_RESULT_UNCONFIRMED：手动入金结果未确认，禁止再次入金，也不会继续开户。');
+        console.log(readableFailure(topUp.output));
+        return 'menu';
+      }
+      try {
+        preflight = await runWebullPreflight(runtimeEnvironment);
+      } catch (error) {
+        console.log('\nMANUAL_DEPOSIT_RESULT_UNCONFIRMED：入金后余额复核失败，禁止再次入金，也不会继续开户。');
+        console.log(error instanceof Error ? error.message : String(error));
+        return 'menu';
+      }
+      if (preflight.status !== 'READY') {
+        console.log('\nMANUAL_DEPOSIT_RESULT_UNCONFIRMED：入金后余额仍不足，禁止再次入金，也不会继续开户。');
+        return 'menu';
+      }
+      openingEnvironment = webullOpeningEnvironment(preflight);
+      console.log(`补款后余额：${preflight.currentBalance} USD，已满足开户条件。`);
+    }
+    Object.assign(runtimeEnvironment, openingEnvironment);
   }
 
   if (jurisdictionTarget) {

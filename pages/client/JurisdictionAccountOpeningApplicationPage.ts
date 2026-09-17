@@ -11,6 +11,8 @@ export type JurisdictionOpeningSummary = {
   fundingRule: string;
 };
 
+export type JurisdictionOpeningRequirement = Omit<JurisdictionOpeningSummary, 'fundingRule'>;
+
 export type JurisdictionOpeningCreationEvidence = {
   route: string;
   status: '申请中' | '已开通';
@@ -32,6 +34,17 @@ export class JurisdictionAccountOpeningApplicationPage {
   }
 
   async expectLoaded(): Promise<void> {
+    await this.expectPageShellLoaded();
+    await expect(this.submitButton).toBeVisible();
+  }
+
+  async expectPreflightLoaded(): Promise<void> {
+    await this.expectPageShellLoaded();
+    await expect(this.page.getByText('开户费用', { exact: true })).toBeVisible();
+    await expect(this.page.getByText('扣费账户', { exact: true })).toBeVisible();
+  }
+
+  private async expectPageShellLoaded(): Promise<void> {
     await expect(this.page).toHaveURL(
       new RegExp(`/account/jurisdiction-application\\?region=${this.config.region}`)
     );
@@ -39,31 +52,41 @@ export class JurisdictionAccountOpeningApplicationPage {
       name: `${this.config.accountName}开户申请`,
       exact: true
     })).toBeVisible({ timeout: 20_000 });
-    await expect(this.submitButton).toBeVisible();
   }
 
   async readOpeningFee(): Promise<string> {
-    const feeHeading = this.page.getByRole('heading', { name: /^[A-Z]{3}\s+[\d,.]+$/ });
-    await expect(feeHeading).toHaveCount(1);
-    return (await feeHeading.innerText()).trim();
+    const feeLabel = this.page.getByText('开户费用', { exact: true });
+    await expect(feeLabel).toHaveCount(1);
+    const feeText = feeLabel.locator('..').getByText(/^[A-Z]{3}\s+[\d,.]+$/);
+    await expect(feeText).toHaveCount(1);
+    await expect(feeText).toBeVisible();
+    return (await feeText.innerText()).trim();
   }
 
-  async readSummary(): Promise<JurisdictionOpeningSummary> {
+  async readOpeningRequirement(): Promise<JurisdictionOpeningRequirement> {
     const bodyText = (await this.page.locator('body').innerText()).replace(/\u00a0/g, ' ');
     const openingFeeText = await this.readOpeningFee();
     const currency = openingFeeText.match(/\b[A-Z]{3}\b/)?.[0];
     const paymentAccount = bodyText.match(/扣费账户\s+([^\n]+)/)?.[1]?.trim();
-    const fundingRule = bodyText.match(/开户费用将在[^\n]+/)?.[0]?.trim();
-    if (!currency || !paymentAccount || !fundingRule) {
-      throw new Error(`${this.config.accountName} opening summary is incomplete.`);
+    if (!currency || !paymentAccount) {
+      throw new Error(`${this.config.accountName} opening requirement is incomplete.`);
     }
     return {
       currency,
       openingFee: decimalFromText(openingFeeText, `${this.config.accountName} opening fee`),
       openingFeeText,
-      paymentAccount,
-      fundingRule
+      paymentAccount
     };
+  }
+
+  async readSummary(): Promise<JurisdictionOpeningSummary> {
+    const requirement = await this.readOpeningRequirement();
+    const bodyText = (await this.page.locator('body').innerText()).replace(/\u00a0/g, ' ');
+    const fundingRule = bodyText.match(/开户费用将在[^\n]+/)?.[0]?.trim();
+    if (!fundingRule) {
+      throw new Error(`${this.config.accountName} opening summary is incomplete.`);
+    }
+    return { ...requirement, fundingRule };
   }
 
   async fileInputCount(): Promise<number> {

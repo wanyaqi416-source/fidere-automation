@@ -19,6 +19,22 @@ test('Webull native existing-sign result exposes no signing token or URL', () =>
   }
 });
 
+test('Webull reads current tRPC result-data-json signing envelopes', () => {
+  const result = readWebullSigningResult({
+    result: { data: { json: { signed: true, documentId: 'current-webull-document', signingUrl: 'secret-url' } } }
+  });
+  expect(result.signed).toBe(true);
+  expect(result.documentReference).toMatch(/^[a-f0-9]{64}$/);
+  expect(JSON.stringify(result)).not.toContain('secret-url');
+});
+
+test('Webull encrypted signing envelopes expose only a digest and defer completion to Fidere UI', () => {
+  const result = readWebullSigningResult({ encrypted: 'opaque-test-ciphertext' });
+  expect(result).toMatchObject({ signed: false, explicitFalse: false, encryptedEnvelope: true });
+  expect(result.documentReference).toMatch(/^[a-f0-9]{64}$/);
+  expect(JSON.stringify(result)).not.toContain('opaque-test-ciphertext');
+});
+
 test('Webull restores a previously signed document through native UI without another Sign', async ({ page }) => {
   await page.route('https://sandbox.fidere.test/**', async route => {
     if (route.request().url().endsWith('/brokerage/init-sign')) {
@@ -40,6 +56,13 @@ test('Webull restores a previously signed document through native UI without ano
   expect((await opening.readDocumentState('w8ben')).completed).toBe(true);
   expect(opening.confirmationClickCount()).toBe(0);
   await expect(opening.restoreExistingSignedDocument('w8ben')).rejects.toThrow('once');
+});
+
+test('Webull accepts direct document-row completion when the completion dialog is absent', async ({ page }) => {
+  await page.setContent('<main><section><p>W-8BEN 表格</p><span>已完成</span><button disabled>已签署</button></section><section><p>CRS 控制人表格</p><button>去签署</button></section></main>');
+  const opening = new WebullOpeningPage(page);
+  await opening.finishNewSignedDocument('w8ben');
+  expect((await opening.readDocumentState('w8ben')).completed).toBe(true);
 });
 
 test('Webull signature configuration is validated before document actions', () => {

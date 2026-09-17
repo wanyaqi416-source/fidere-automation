@@ -53,6 +53,30 @@ export class WebullOpeningPage {
       { timeout: 45_000, message: `Fidere has not confirmed Webull ${id}; never sign it again.` }).toBe(true);
   }
 
+  async finishNewSignedDocument(id: WebullDocumentId): Promise<void> {
+    const definition = WEBULL_DOCUMENTS.find(document => document.id === id);
+    if (!definition) throw new Error('Unknown Webull signing document.');
+    const dialog = this.page.getByRole('dialog').filter({ hasText: definition.label });
+    await expect.poll(async () => {
+      const completionText = dialog.getByText('你已完成签署', { exact: true });
+      const providerText = dialog.getByText('第三方签署已确认', { exact: true });
+      if (await completionText.isVisible().catch(() => false)
+        && await providerText.isVisible().catch(() => false)) return 'completion-dialog';
+      return (await this.readDocumentState(id)).completed ? 'document-row' : '';
+    }, {
+      timeout: 60_000,
+      message: `Fidere did not recognize completed Webull document ${id}.`
+    }).not.toBe('');
+    if (await dialog.isVisible().catch(() => false)) {
+      const close = dialog.getByRole('button', { name: '关闭', exact: true });
+      if (await close.isVisible().catch(() => false)) {
+        await close.click();
+        await expect(dialog).toBeHidden();
+      }
+    }
+    await this.expectDocumentSigned(id);
+  }
+
   async readDocumentState(id: WebullDocumentId) {
     const container = await this.findDocumentContainer(id);
     if (!container) return { id, completed: false, action: 'updating' };
@@ -82,16 +106,11 @@ export class WebullOpeningPage {
     const result = readWebullSigningResult(await response.json());
     const evidence = { id, ...result, path: new URL(response.url()).pathname, httpStatus: response.status() };
     console.log('WEBULL_EXISTING_DOCUMENT ' + JSON.stringify(evidence));
-    if (!response.ok() || !result.signed) {
+    if (!response.ok() || (!result.signed && (!result.encryptedEnvelope || result.explicitFalse))) {
       throw new Error(`WEBULL_EXISTING_SIGNING_UNCONFIRMED: ${id}, HTTP ${response.status()}, signed=${result.signed}; no repeat Sign or fee submission.`);
     }
-    const dialog = this.page.getByRole('dialog').filter({ hasText: WEBULL_DOCUMENTS.find(document => document.id === id)!.label });
-    await expect(dialog.getByText('你已完成签署', { exact: true })).toBeVisible();
-    await expect(dialog.getByText('第三方签署已确认', { exact: true })).toBeVisible();
-    await dialog.getByRole('button', { name: '关闭', exact: true }).click();
-    await expect(dialog).toBeHidden();
-    await this.expectDocumentSigned(id);
-    return evidence;
+    await this.finishNewSignedDocument(id);
+    return { ...evidence, signed: true, completionEvidence: result.signed ? 'plain-response-and-fidere-ui' : 'encrypted-response-and-fidere-ui' };
   }
 
   async prepareReview(): Promise<void> {
@@ -109,6 +128,24 @@ export class WebullOpeningPage {
     await expect(this.finalSubmit).toBeEnabled();
     this.confirmationClicks++;
     await this.finalSubmit.click();
+  }
+
+  async verifySecurityKeyOnce(): Promise<Array<{ method: string; path: string; status: number }>> {
+    const origin = new URL(this.page.url()).origin;
+    const responses: Array<{ method: string; path: string; status: number }> = [];
+    const observe = (response: import('@playwright/test').Response) => {
+      const request = response.request();
+      const url = new URL(response.url());
+      if (url.origin !== origin || !['POST', 'PUT', 'PATCH'].includes(request.method())) return;
+      responses.push({ method: request.method(), path: url.pathname, status: response.status() });
+    };
+    this.page.on('response', observe);
+    try {
+      await this.opening.securityKey.verifyOnce();
+    } finally {
+      this.page.off('response', observe);
+    }
+    return responses;
   }
 
   confirmationClickCount(): number { return this.confirmationClicks; }

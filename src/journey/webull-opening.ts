@@ -11,17 +11,49 @@ export type WebullDocumentId = (typeof WEBULL_DOCUMENTS)[number]['id'];
 
 // Only expose a completion flag and digested reference; init-sign can contain bearer URLs.
 export function readWebullSigningResult(body: unknown) {
-  let value = body;
-  for (let depth = 0; depth < 8; depth++) {
-    if (!value || typeof value !== 'object' || Array.isArray(value)) break;
+  const queue: unknown[] = [body];
+  const visited = new Set<object>();
+  let explicitFalse = false;
+  let fallbackDocumentId: string | number | undefined;
+  let encryptedReference: string | undefined;
+  while (queue.length > 0) {
+    const value = queue.shift();
+    if (!value || typeof value !== 'object' || visited.has(value)) continue;
+    visited.add(value);
+    if (Array.isArray(value)) {
+      queue.push(...value);
+      continue;
+    }
     const record = value as Record<string, unknown>;
-    if ('data' in record) { value = record.data; continue; }
+    if (typeof record.encrypted === 'string') {
+      encryptedReference ??= createHash('sha256').update(record.encrypted).digest('hex');
+    }
     const documentId = record.documentId;
-    return { signed: record.signed === true,
-      documentReference: typeof documentId === 'string' || typeof documentId === 'number'
-        ? createHash('sha256').update(String(documentId)).digest('hex') : undefined };
+    if (typeof documentId === 'string' || typeof documentId === 'number') fallbackDocumentId ??= documentId;
+    if (record.signed === true) {
+      const reference = typeof documentId === 'string' || typeof documentId === 'number'
+        ? documentId : fallbackDocumentId;
+      return {
+        signed: true,
+        documentReference: reference === undefined
+          ? encryptedReference
+          : createHash('sha256').update(String(reference)).digest('hex'),
+        encryptedEnvelope: encryptedReference !== undefined
+      };
+    }
+    if (record.signed === false) explicitFalse = true;
+    for (const nested of Object.values(record)) {
+      if (nested && typeof nested === 'object') queue.push(nested);
+    }
   }
-  return { signed: false, documentReference: undefined };
+  return {
+    signed: false,
+    documentReference: fallbackDocumentId === undefined
+      ? encryptedReference
+      : createHash('sha256').update(String(fallbackDocumentId)).digest('hex'),
+    explicitFalse,
+    encryptedEnvelope: encryptedReference !== undefined
+  };
 }
 
 export function getWebullSignerIdentity(configuration = {
